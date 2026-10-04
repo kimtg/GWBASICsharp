@@ -1,0 +1,30 @@
+10 REM ==========================================
+20 REM  RANDOM ACCESS FILE I/O DEMO
+30 REM ==========================================
+40 PRINT "Creating random access database: EMPLOYEES.DAT"
+50 OPEN "EMPLOYEES.DAT" AS #1 LEN = 32
+60 FIELD #1, 4 AS ID$, 20 AS NAME$, 8 AS SALARY$
+70 REM WRITE RECORD 1
+80 LSET ID$ = MKI$(101)
+90 LSET NAME$ = "ALAN TURING"
+100 LSET SALARY$ = MKD$(75000.50)
+110 PUT #1, 1
+120 REM WRITE RECORD 2
+130 LSET ID$ = MKI$(102)
+140 LSET NAME$ = "ADA LOVELACE"
+150 LSET SALARY$ = MKD$(82000.75)
+160 PUT #1, 2
+170 CLOSE #1
+180 PRINT "Records written. Reading back from file..."
+190 OPEN "EMPLOYEES.DAT" AS #1 LEN = 32
+200 FIELD #1, 4 AS ID$, 20 AS NAME$, 8 AS SALARY$
+210 FOR REC = 1 TO 2
+220   GET #1, REC
+230   EID% = CVI(ID$)
+240   ENAME$ = NAME$
+250   ESAL# = CVD(SALARY$)
+260   PRINT USING "RECORD _#: ## | ID: #### | NAME: \                  \ | SALARY: $$##,###.##"; REC; EID%; ENAME$; ESAL#
+270 NEXT REC
+280 CLOSE #1
+290 KILL "EMPLOYEES.DAT"
+300 PRINT "Database test completed successfully."
