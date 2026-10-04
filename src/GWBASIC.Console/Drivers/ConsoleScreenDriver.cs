@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using GWBASIC.Core.Common;
 using GWBASIC.Core.Drivers;
 
@@ -5,6 +6,98 @@ namespace GWBASIC.ConsoleApp.Drivers;
 
 public class ConsoleScreenDriver : IScreenDriver
 {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GetStdHandle(int nStdHandle);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+
+    private const int STD_OUTPUT_HANDLE = -11;
+    private const uint ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
+
+    private static bool _vtSupported = false;
+    private static bool _inAlternateBuffer = false;
+    private static int _restored = 0;
+
+    public static bool EnableVirtualTerminal()
+    {
+        if (Console.IsOutputRedirected || Console.IsInputRedirected)
+            return false;
+
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                var handle = GetStdHandle(STD_OUTPUT_HANDLE);
+                if (handle != IntPtr.Zero && handle != new IntPtr(-1))
+                {
+                    if (GetConsoleMode(handle, out uint mode))
+                    {
+                        if ((mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0 ||
+                            SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING))
+                        {
+                            _vtSupported = true;
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        _vtSupported = true;
+        return true;
+    }
+
+    public static void EnterAlternateBuffer()
+    {
+        if (Console.IsOutputRedirected || Console.IsInputRedirected)
+            return;
+
+        _restored = 0;
+        EnableVirtualTerminal();
+
+        if (_vtSupported)
+        {
+            try
+            {
+                Console.Write("\x1b[?1049h");
+                _inAlternateBuffer = true;
+            }
+            catch { }
+        }
+    }
+
+    public static void ExitAlternateBuffer()
+    {
+        if (Interlocked.Exchange(ref _restored, 1) != 0)
+            return;
+
+        if (Console.IsOutputRedirected || Console.IsInputRedirected)
+            return;
+
+        try
+        {
+            Console.ResetColor();
+            Console.CursorVisible = true;
+
+            if (_inAlternateBuffer && _vtSupported)
+            {
+                _inAlternateBuffer = false;
+                Console.Write("\x1b[?1049l");
+            }
+            else
+            {
+                Console.Clear();
+            }
+        }
+        catch { }
+    }
+
     public int Width { get; private set; } = 80;
     public int Height { get; private set; } = 25;
     public int Mode { get; private set; } = 0;

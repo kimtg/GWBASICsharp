@@ -16,6 +16,12 @@ public static class Program
         }
         catch { }
 
+        bool isInteractive = !Console.IsOutputRedirected && !Console.IsInputRedirected;
+        if (isInteractive)
+        {
+            ConsoleScreenDriver.EnterAlternateBuffer();
+        }
+
         var screen = new ConsoleScreenDriver();
         var audio = new ConsoleAudioDriver();
         var input = new ConsoleInputDriver(screen);
@@ -25,17 +31,32 @@ public static class Program
         input.AttachEnvironment(environment);
         var interpreter = new Interpreter(environment);
 
+        AppDomain.CurrentDomain.ProcessExit += (sender, e) =>
+        {
+            ConsoleScreenDriver.ExitAlternateBuffer();
+        };
+
         // Handle Ctrl+C / Ctrl+Break
         Console.CancelKeyPress += (sender, e) =>
         {
-            e.Cancel = true;
             if (interpreter.IsRunning)
             {
+                e.Cancel = true;
                 environment.IsPaused = true;
                 screen.WriteLine($"\r\nBreak in {environment.CurrentLineNumber}");
                 screen.WriteLine("Ok");
             }
+            else
+            {
+                ConsoleScreenDriver.ExitAlternateBuffer();
+            }
         };
+
+        // In interactive mode, initialize screen and display row 25 function keys
+        if (isInteractive)
+        {
+            screen.Cls();
+        }
 
         // If file passed via args, run it
         if (args.Length > 0 && !string.IsNullOrWhiteSpace(args[0]))
@@ -80,5 +101,7 @@ public static class Program
                 break;
             }
         }
+
+        ConsoleScreenDriver.ExitAlternateBuffer();
     }
 }
