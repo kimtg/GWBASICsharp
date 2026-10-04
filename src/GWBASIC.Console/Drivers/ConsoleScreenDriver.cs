@@ -213,6 +213,20 @@ public class ConsoleScreenDriver : IScreenDriver
 
     public void Write(string text)
     {
+        if (!_isRedirected)
+        {
+            try
+            {
+                int expectedLeft = Math.Clamp(_cursorCol - 1, 0, Width - 1);
+                int expectedTop = Math.Clamp(_cursorRow - 1, 0, Height - 1);
+                if (Console.CursorLeft != expectedLeft || Console.CursorTop != expectedTop)
+                {
+                    Console.SetCursorPosition(expectedLeft, expectedTop);
+                }
+            }
+            catch { }
+        }
+
         foreach (char ch in text)
         {
             if (ch == '\r')

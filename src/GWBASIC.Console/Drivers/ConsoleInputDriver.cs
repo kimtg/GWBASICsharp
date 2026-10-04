@@ -44,12 +44,11 @@ public class ConsoleInputDriver : IInputDriver
         var sb = new StringBuilder();
         int cursor = 0;
         bool insertMode = true;
-        int startCol = 0;
-        int startRow = 0;
+        int startCol = Math.Clamp(_screen.CursorCol - 1, 0, _screen.Width - 1);
+        int startRow = Math.Clamp(_screen.CursorRow - 1, 0, _screen.Height - 1);
         try
         {
-            startCol = Console.CursorLeft;
-            startRow = Console.CursorTop;
+            Console.SetCursorPosition(startCol, startRow);
         }
         catch { }
 
@@ -67,7 +66,7 @@ public class ConsoleInputDriver : IInputDriver
                 {
                     if (ch == '\r')
                     {
-                        Console.WriteLine();
+                        _screen.WriteLine();
                         string finalLine = sb.ToString();
                         AddToHistory(finalLine);
                         return finalLine;
@@ -80,7 +79,7 @@ public class ConsoleInputDriver : IInputDriver
 
             if (keyInfo.Key == ConsoleKey.Enter)
             {
-                Console.WriteLine();
+                _screen.WriteLine();
                 string line = sb.ToString();
                 AddToHistory(line);
                 return line;
