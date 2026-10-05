@@ -318,6 +318,7 @@ public class VirtualAudioDriver : IAudioDriver
     public List<(int Freq, int Dur)> PlayedSounds { get; } = new();
     public List<string> PlayedTunes { get; } = new();
     public int BeepCount { get; private set; }
+    public int StopCount { get; private set; }
 
     public void Beep() => BeepCount++;
 
@@ -326,6 +327,8 @@ public class VirtualAudioDriver : IAudioDriver
 
     public void Play(string musicCommands) =>
         PlayedTunes.Add(musicCommands);
+
+    public void Stop() => StopCount++;
 }
 
 public class VirtualInputDriver : IInputDriver

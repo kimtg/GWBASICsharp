@@ -34,6 +34,7 @@ public static class Program
 
         AppDomain.CurrentDomain.ProcessExit += (sender, e) =>
         {
+            audio.Stop();
             ConsoleScreenDriver.ExitAlternateBuffer();
             screen.Dispose();
         };
@@ -41,6 +42,7 @@ public static class Program
         // Handle Ctrl+C / Ctrl+Break
         Console.CancelKeyPress += (sender, e) =>
         {
+            audio.Stop();
             if (interpreter.IsRunning)
             {
                 e.Cancel = true;
@@ -110,6 +112,7 @@ public static class Program
             }
         }
 
+        audio.Stop();
         ConsoleScreenDriver.ExitAlternateBuffer();
         screen.Dispose();
     }

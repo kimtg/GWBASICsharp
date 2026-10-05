@@ -8,4 +8,5 @@ public interface IAudioDriver
     void Beep();
     void Sound(int frequencyHz, int durationClockTicks);
     void Play(string musicCommands);
+    void Stop();
 }

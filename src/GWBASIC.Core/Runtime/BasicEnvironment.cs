@@ -882,6 +882,7 @@ public class BasicEnvironment
 
     public void NewProgram()
     {
+        Audio.Stop();
         Program.Clear();
         ClearVariables();
         ExitAutoMode();
