@@ -503,31 +503,31 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
 
                 int padLen = slotLabelLen - keyText.Length;
 
-                // Function key number: normal monochrome (pure white on pure black)
+                // Function key number: normal monochrome (gray on black)
                 if (_vtSupported)
                 {
-                    Console.Write("\x1b[0m\x1b[38;2;255;255;255;48;2;0;0;0m" + num);
+                    Console.Write("\x1b[0m\x1b[38;2;170;170;170;48;2;0;0;0m" + num);
                 }
                 else
                 {
                     Console.ResetColor();
-                    Console.ForegroundColor = ConsoleColor.White;
+                    Console.ForegroundColor = ConsoleColor.Gray;
                     Console.BackgroundColor = ConsoleColor.Black;
                     Console.Write(num);
                 }
 
-                // Keys string only: inverse monochrome (true pure black on true white)
+                // Keys string only: inverse monochrome (black on gray)
                 if (keyText.Length > 0)
                 {
                     if (_vtSupported)
                     {
-                        Console.Write("\x1b[0m\x1b[38;2;0;0;0;48;2;255;255;255m" + keyText);
+                        Console.Write("\x1b[0m\x1b[38;2;0;0;0;48;2;170;170;170m" + keyText);
                     }
                     else
                     {
                         Console.ResetColor();
                         Console.ForegroundColor = ConsoleColor.Black;
-                        Console.BackgroundColor = ConsoleColor.White;
+                        Console.BackgroundColor = ConsoleColor.Gray;
                         Console.Write(keyText);
                     }
                 }
@@ -537,12 +537,12 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
                 {
                     if (_vtSupported)
                     {
-                        Console.Write("\x1b[0m\x1b[38;2;255;255;255;48;2;0;0;0m" + new string(' ', padLen));
+                        Console.Write("\x1b[0m\x1b[38;2;170;170;170;48;2;0;0;0m" + new string(' ', padLen));
                     }
                     else
                     {
                         Console.ResetColor();
-                        Console.ForegroundColor = ConsoleColor.White;
+                        Console.ForegroundColor = ConsoleColor.Gray;
                         Console.BackgroundColor = ConsoleColor.Black;
                         Console.Write(new string(' ', padLen));
                     }
@@ -556,12 +556,12 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
             {
                 if (_vtSupported)
                 {
-                    Console.Write("\x1b[0m\x1b[38;2;255;255;255;48;2;0;0;0m" + new string(' ', termWidth - drawnCols));
+                    Console.Write("\x1b[0m\x1b[38;2;170;170;170;48;2;0;0;0m" + new string(' ', termWidth - drawnCols));
                 }
                 else
                 {
                     Console.ResetColor();
-                    Console.ForegroundColor = ConsoleColor.White;
+                    Console.ForegroundColor = ConsoleColor.Gray;
                     Console.BackgroundColor = ConsoleColor.Black;
                     Console.Write(new string(' ', termWidth - drawnCols));
                 }
@@ -606,13 +606,13 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
             if (_vtSupported)
             {
                 Console.Write("\x1b[0m\x1b[2K"); // Reset all and erase entire 25th row
-                Console.Write("\x1b[38;2;255;255;255;48;2;0;0;0m" + new string(' ', termWidth));
+                Console.Write("\x1b[38;2;170;170;170;48;2;0;0;0m" + new string(' ', termWidth));
                 Console.Write("\x1b[0m");
             }
             else
             {
                 Console.ResetColor();
-                Console.ForegroundColor = ConsoleColor.White;
+                Console.ForegroundColor = ConsoleColor.Gray;
                 Console.BackgroundColor = ConsoleColor.Black;
                 Console.Write(new string(' ', termWidth));
             }
