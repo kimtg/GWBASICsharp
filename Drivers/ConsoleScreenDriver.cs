@@ -113,7 +113,24 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
     public int CursorRow => _cursorRow;
     public int CursorCol => _cursorCol;
     public bool CursorVisible { get; private set; } = true;
-    public bool KeyRowVisible { get; set; } = true;
+
+    private bool _keyRowVisible = true;
+    public bool KeyRowVisible
+    {
+        get => _keyRowVisible;
+        set
+        {
+            _keyRowVisible = value;
+            if (_keyRowVisible)
+            {
+                RenderKeyRow();
+            }
+            else
+            {
+                ClearKeyRow();
+            }
+        }
+    }
 
     private string[] _keyLabels = new string[10];
     private readonly char[,] _charBuffer;
@@ -256,6 +273,11 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
 
             var bgCol = CgaPalette.GetColor(BackgroundColor);
             GraphicContext.Clear(Color.FromArgb(bgCol.R, bgCol.G, bgCol.B));
+        }
+
+        if (KeyRowVisible && Mode == 0)
+        {
+            RenderKeyRow();
         }
 
         if (!_isRedirected)
@@ -420,7 +442,7 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
     public void SetKeyLabels(string[] labels)
     {
         _keyLabels = labels;
-        if (KeyRowVisible && !_isRedirected && Mode == 0)
+        if (KeyRowVisible && Mode == 0)
         {
             RenderKeyRow();
         }
@@ -428,6 +450,19 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
 
     public void RenderKeyRow()
     {
+        int col = 0;
+        for (int i = 0; i < 10; i++)
+        {
+            string label = i < _keyLabels.Length && _keyLabels[i] != null ? _keyLabels[i] : "";
+            string num = ((i + 1) % 10).ToString();
+            string rest = label.Length > 1 ? label[1..] : "";
+            string chunk = num + rest.PadRight(7);
+            for (int k = 0; k < chunk.Length && col < Width; k++)
+            {
+                _charBuffer[Height - 1, col++] = chunk[k];
+            }
+        }
+
         if (_isRedirected || Mode != 0) return;
         try
         {
@@ -455,7 +490,34 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
 
             Console.ForegroundColor = oldFg;
             Console.BackgroundColor = oldBg;
-            Console.SetCursorPosition(oldLeft, oldTop);
+            Console.SetCursorPosition(Math.Clamp(oldLeft, 0, Width - 1), Math.Clamp(oldTop, 0, Height - 1));
+        }
+        catch { }
+    }
+
+    public void ClearKeyRow()
+    {
+        for (int c = 0; c < Width; c++)
+        {
+            _charBuffer[Height - 1, c] = ' ';
+        }
+
+        if (_isRedirected || Mode != 0) return;
+        try
+        {
+            int oldLeft = Console.CursorLeft;
+            int oldTop = Console.CursorTop;
+            var oldFg = Console.ForegroundColor;
+            var oldBg = Console.BackgroundColor;
+
+            Console.SetCursorPosition(0, Height - 1);
+            Console.ForegroundColor = CgaPalette.GetColor(ForegroundColor).ConsoleColor;
+            Console.BackgroundColor = CgaPalette.GetColor(BackgroundColor).ConsoleColor;
+            Console.Write(new string(' ', Width));
+
+            Console.ForegroundColor = oldFg;
+            Console.BackgroundColor = oldBg;
+            Console.SetCursorPosition(Math.Clamp(oldLeft, 0, Width - 1), Math.Clamp(oldTop, 0, Height - 1));
         }
         catch { }
     }

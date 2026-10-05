@@ -13,7 +13,24 @@ public class VirtualScreenDriver : IScreenDriver
     public int CursorRow { get; private set; } = 1; // 1-based
     public int CursorCol { get; private set; } = 1; // 1-based
     public bool CursorVisible { get; private set; } = true;
-    public bool KeyRowVisible { get; set; } = true;
+
+    private bool _keyRowVisible = true;
+    public bool KeyRowVisible
+    {
+        get => _keyRowVisible;
+        set
+        {
+            _keyRowVisible = value;
+            if (_keyRowVisible)
+            {
+                RenderKeyRow();
+            }
+            else
+            {
+                ClearKeyRow();
+            }
+        }
+    }
 
     private readonly char[,] _screenBuffer;
     private readonly byte[,] _pixelBuffer; // For Screen 1 (320x200), Screen 2 (640x200)
@@ -72,6 +89,10 @@ public class VirtualScreenDriver : IScreenDriver
         Array.Clear(_pixelBuffer);
         CursorRow = 1;
         CursorCol = 1;
+        if (KeyRowVisible)
+        {
+            RenderKeyRow();
+        }
     }
 
     public void Write(string text)
@@ -140,6 +161,36 @@ public class VirtualScreenDriver : IScreenDriver
     public void SetKeyLabels(string[] labels)
     {
         _keyLabels = labels;
+        if (KeyRowVisible)
+        {
+            RenderKeyRow();
+        }
+    }
+
+    public void RenderKeyRow()
+    {
+        int r = Height - 1;
+        int col = 0;
+        for (int i = 0; i < 10; i++)
+        {
+            string label = i < _keyLabels.Length && _keyLabels[i] != null ? _keyLabels[i] : "";
+            string num = ((i + 1) % 10).ToString();
+            string rest = label.Length > 1 ? label[1..] : "";
+            string chunk = num + rest.PadRight(7);
+            for (int k = 0; k < chunk.Length && col < Width; k++)
+            {
+                _screenBuffer[r, col++] = chunk[k];
+            }
+        }
+    }
+
+    public void ClearKeyRow()
+    {
+        int r = Height - 1;
+        for (int c = 0; c < Width; c++)
+        {
+            _screenBuffer[r, c] = ' ';
+        }
     }
 
     public void PSet(int x, int y, int color)

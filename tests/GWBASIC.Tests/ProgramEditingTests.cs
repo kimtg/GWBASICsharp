@@ -80,4 +80,25 @@ public class ProgramEditingTests
         Assert.Equal(100, _env.GetVariable("X").AsSingle);
         Assert.Equal(200, _env.GetVariable("Y").AsSingle);
     }
+
+    [Fact]
+    public void TestKeyOnOffImmediate()
+    {
+        // Initial state: row 25 has function keys
+        string row25Initial = _screen.ReadLine(25);
+        Assert.Contains("1LIST", row25Initial);
+        Assert.True(_screen.KeyRowVisible);
+
+        // KEY OFF without CLS: immediately hides row 25
+        _interpreter.ExecuteInputLine("KEY OFF");
+        Assert.False(_screen.KeyRowVisible);
+        string row25Off = _screen.ReadLine(25);
+        Assert.Equal("", row25Off.Trim());
+
+        // KEY ON without CLS: immediately restores row 25
+        _interpreter.ExecuteInputLine("KEY ON");
+        Assert.True(_screen.KeyRowVisible);
+        string row25On = _screen.ReadLine(25);
+        Assert.Contains("1LIST", row25On);
+    }
 }
