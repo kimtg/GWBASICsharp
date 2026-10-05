@@ -108,4 +108,185 @@ public class ProgramEditingTests
         string row25On = _screen.ReadLine(25);
         Assert.Contains("1LIST", row25On);
     }
+
+    [Fact]
+    public void TestAutoDefaultAndBreak()
+    {
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("AUTO");
+
+        Assert.True(_env.IsAutoMode);
+        Assert.Equal(10, _env.AutoLineNumber);
+        Assert.Equal(10, _env.AutoIncrement);
+        Assert.EndsWith("10 ", _screen.GetOutputLog());
+
+        // Enter statement without line number -> prepends 10
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("PRINT \"HELLO\"");
+        Assert.Equal(20, _env.AutoLineNumber);
+        Assert.EndsWith("20 ", _screen.GetOutputLog());
+        Assert.NotNull(_env.Program.GetLine(10));
+        Assert.Contains("PRINT \"HELLO\"", _env.Program.GetLine(10)!.Text);
+
+        // Enter statement for line 20
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("PRINT \"WORLD\"");
+        Assert.Equal(30, _env.AutoLineNumber);
+        Assert.EndsWith("30 ", _screen.GetOutputLog());
+        Assert.NotNull(_env.Program.GetLine(20));
+
+        // Empty enter skips line 30
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("");
+        Assert.Equal(40, _env.AutoLineNumber);
+        Assert.EndsWith("40 ", _screen.GetOutputLog());
+        Assert.Null(_env.Program.GetLine(30));
+
+        // Break with \x03 exits AUTO mode
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("\x03");
+        Assert.False(_env.IsAutoMode);
+        Assert.Contains("Ok", _screen.GetOutputLog());
+        Assert.Equal(2, _env.Program.Count);
+    }
+
+    [Fact]
+    public void TestAutoCustomStartAndIncrement()
+    {
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("AUTO 100, 50");
+
+        Assert.True(_env.IsAutoMode);
+        Assert.Equal(100, _env.AutoLineNumber);
+        Assert.Equal(50, _env.AutoIncrement);
+        Assert.EndsWith("100 ", _screen.GetOutputLog());
+
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("PRINT \"A\"");
+        Assert.Equal(150, _env.AutoLineNumber);
+        Assert.EndsWith("150 ", _screen.GetOutputLog());
+
+        // Entering an explicit line number sets that line and updates next auto line
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("200 PRINT \"B\"");
+        Assert.NotNull(_env.Program.GetLine(200));
+        Assert.Equal(250, _env.AutoLineNumber);
+        Assert.EndsWith("250 ", _screen.GetOutputLog());
+
+        // Exit AUTO mode
+        _interpreter.ExecuteInputLine("\x03");
+        Assert.False(_env.IsAutoMode);
+
+        // Subsequent AUTO with comma inherits previous increment 50
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("AUTO 300,");
+        Assert.Equal(300, _env.AutoLineNumber);
+        Assert.Equal(50, _env.AutoIncrement);
+        Assert.EndsWith("300 ", _screen.GetOutputLog());
+        _interpreter.ExecuteInputLine("\x03");
+    }
+
+    [Fact]
+    public void TestAutoDotCurrentLine()
+    {
+        _interpreter.ExecuteInputLine("50 PRINT \"ORIGINAL\"");
+        Assert.Equal(50, _env.CurrentLineNumber);
+
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("AUTO ., 5");
+
+        Assert.True(_env.IsAutoMode);
+        Assert.Equal(50, _env.AutoLineNumber);
+        Assert.Equal(5, _env.AutoIncrement);
+        // Line 50 exists, so prompt should have asterisk
+        Assert.EndsWith("50* ", _screen.GetOutputLog());
+
+        // Empty line preserves original line 50
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("");
+        Assert.Equal(55, _env.AutoLineNumber);
+        Assert.EndsWith("55 ", _screen.GetOutputLog());
+        Assert.Contains("ORIGINAL", _env.Program.GetLine(50)!.Text);
+
+        _interpreter.ExecuteInputLine("\x03");
+    }
+
+    [Fact]
+    public void TestAutoCommaOmitStartLine()
+    {
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("AUTO , 25");
+
+        Assert.True(_env.IsAutoMode);
+        Assert.Equal(0, _env.AutoLineNumber);
+        Assert.Equal(25, _env.AutoIncrement);
+        Assert.EndsWith("0 ", _screen.GetOutputLog());
+
+        _interpreter.ExecuteInputLine("REM ZERO");
+        Assert.NotNull(_env.Program.GetLine(0));
+        Assert.Equal(25, _env.AutoLineNumber);
+        Assert.EndsWith("25 ", _screen.GetOutputLog());
+
+        _interpreter.ExecuteInputLine("\x03");
+    }
+
+    [Fact]
+    public void TestAutoExistingLineAsteriskAndOverwrite()
+    {
+        _interpreter.ExecuteInputLine("10 PRINT \"OLD\"");
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("AUTO 10");
+
+        Assert.EndsWith("10* ", _screen.GetOutputLog());
+
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("PRINT \"NEW\"");
+        Assert.Equal(20, _env.AutoLineNumber);
+        Assert.Contains("PRINT \"NEW\"", _env.Program.GetLine(10)!.Text);
+
+        _interpreter.ExecuteInputLine("\x03");
+    }
+
+    [Fact]
+    public void TestAutoExceedMaxLineNumber()
+    {
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("AUTO 65525, 10");
+        Assert.True(_env.IsAutoMode);
+
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("REM LAST");
+        Assert.NotNull(_env.Program.GetLine(65525));
+        // Next line would be 65535 > 65529, so auto mode exits with Ok
+        Assert.False(_env.IsAutoMode);
+        Assert.Contains("Ok", _screen.GetOutputLog());
+    }
+
+    [Fact]
+    public void TestAutoIllegalDirectInProgram()
+    {
+        _interpreter.ExecuteInputLine("10 AUTO");
+        _screen.ClearOutputLog();
+        _interpreter.Run();
+        Assert.Contains("Illegal direct in 10", _screen.GetOutputLog());
+    }
+
+    [Fact]
+    public void TestAutoInvalidArguments()
+    {
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("AUTO 70000");
+        Assert.Contains("Illegal function call", _screen.GetOutputLog());
+        Assert.False(_env.IsAutoMode);
+
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("AUTO 10, 0");
+        Assert.Contains("Illegal function call", _screen.GetOutputLog());
+        Assert.False(_env.IsAutoMode);
+
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("AUTO 10, 70000");
+        Assert.Contains("Illegal function call", _screen.GetOutputLog());
+        Assert.False(_env.IsAutoMode);
+    }
 }

@@ -345,6 +345,13 @@ public class BasicLexer
                 continue;
             }
 
+            // Standalone Dot (current line number in AUTO ., LIST ., etc.)
+            if (c == '.')
+            {
+                tokens.Add(new Token(TokenType.Dot, ".", null, _pos++, _line));
+                continue;
+            }
+
             // Identifiers and Keywords
             if (char.IsAsciiLetter(c))
             {

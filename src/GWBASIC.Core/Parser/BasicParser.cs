@@ -1,3 +1,4 @@
+using System.Globalization;
 using GWBASIC.Core.Common;
 using GWBASIC.Core.Drivers;
 using GWBASIC.Core.Lexer;
@@ -28,9 +29,9 @@ public class BasicParser
     public (int? LineNumber, List<Statement> Statements) ParseProgramLine()
     {
         int? lineNumber = null;
-        if (Match(TokenType.IntegerLiteral))
+        if (MatchLineNumber(out int lNum))
         {
-            lineNumber = Previous().Value?.AsInteger ?? int.Parse(Previous().Text);
+            lineNumber = lNum;
         }
 
         var statements = new List<Statement>();
@@ -297,6 +298,9 @@ public class BasicParser
 
         if (Match(TokenType.Llist))
             return ParseList(true);
+
+        if (Match(TokenType.Auto))
+            return ParseAuto();
 
         if (Match(TokenType.Renum))
             return ParseRenum();
@@ -1020,6 +1024,51 @@ public class BasicParser
         return isLlist ? new LlistStatement(start, end) : new ListStatement(start, end);
     }
 
+    private Statement ParseAuto()
+    {
+        int? startLine = null;
+        int? increment = null;
+        bool useCurrentLine = false;
+
+        if (Match(TokenType.Dot))
+        {
+            useCurrentLine = true;
+            if (Match(TokenType.Comma))
+            {
+                if (MatchLineNumber(out int inc))
+                {
+                    increment = inc;
+                }
+            }
+        }
+        else if (MatchLineNumber(out int start))
+        {
+            startLine = start;
+            if (Match(TokenType.Comma))
+            {
+                if (MatchLineNumber(out int inc))
+                {
+                    increment = inc;
+                }
+            }
+        }
+        else if (Match(TokenType.Comma))
+        {
+            startLine = 0;
+            if (MatchLineNumber(out int inc))
+            {
+                increment = inc;
+            }
+        }
+
+        if (!IsStatementTerminator())
+        {
+            throw new BasicException(BasicErrorCode.SyntaxError, Peek().Line, "Syntax error in AUTO");
+        }
+
+        return new AutoStatement(startLine, increment, useCurrentLine);
+    }
+
     private Statement ParseRenum()
     {
         int? newStart = null, oldStart = null, inc = null;
@@ -1375,6 +1424,25 @@ public class BasicParser
             Consume(TokenType.CloseParen, "Expected ')' after array indices");
         }
         return (name, indices);
+    }
+
+    private bool MatchLineNumber(out int lineNumber)
+    {
+        if (Match(TokenType.IntegerLiteral))
+        {
+            lineNumber = Previous().Value?.AsInteger ?? int.Parse(Previous().Text);
+            return true;
+        }
+        if (Match(TokenType.SingleLiteral))
+        {
+            if (int.TryParse(Previous().Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out lineNumber))
+            {
+                return true;
+            }
+            _pos--;
+        }
+        lineNumber = 0;
+        return false;
     }
 
     #endregion

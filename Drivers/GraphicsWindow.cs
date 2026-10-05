@@ -119,6 +119,20 @@ public class GraphicsWindow : Form
             return;
         }
 
+        if (e.Control && e.KeyCode == Keys.C)
+        {
+            _inputDriver.EnqueueKey(new ConsoleKeyInfo('\x03', ConsoleKey.C, false, false, true));
+            e.Handled = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.Pause)
+        {
+            _inputDriver.EnqueueKey(new ConsoleKeyInfo('\x03', ConsoleKey.Pause, false, false, false));
+            e.Handled = true;
+            return;
+        }
+
         if (e.KeyCode == Keys.Escape)
         {
             _inputDriver.EnqueueKey(new ConsoleKeyInfo('\x1b', ConsoleKey.Escape, false, false, false));

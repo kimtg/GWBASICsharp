@@ -11,6 +11,7 @@ public enum TokenType
     OpenParen,
     CloseParen,
     Hash,
+    Dot,
 
     // Operators
     Plus,

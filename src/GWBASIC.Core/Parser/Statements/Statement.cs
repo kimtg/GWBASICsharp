@@ -1392,6 +1392,52 @@ public class RenumStatement : Statement
     }
 }
 
+public class AutoStatement : Statement
+{
+    public int? StartLine { get; }
+    public int? Increment { get; }
+    public bool UseCurrentLine { get; }
+
+    public AutoStatement(int? startLine, int? increment, bool useCurrentLine = false)
+    {
+        StartLine = startLine;
+        Increment = increment;
+        UseCurrentLine = useCurrentLine;
+    }
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        if (env.IsProgramRunning)
+        {
+            throw new BasicException(BasicErrorCode.IllegalDirect);
+        }
+
+        int start = StartLine ?? 10;
+        if (UseCurrentLine)
+        {
+            start = env.CurrentLineNumber > 0 ? env.CurrentLineNumber : 10;
+        }
+
+        if (start < 0 || start > 65529)
+        {
+            throw new BasicException(BasicErrorCode.IllegalFunctionCall);
+        }
+
+        int inc = Increment ?? env.AutoIncrement;
+        if (Increment.HasValue)
+        {
+            if (Increment.Value <= 0 || Increment.Value > 65529)
+            {
+                throw new BasicException(BasicErrorCode.IllegalFunctionCall);
+            }
+            env.AutoIncrement = Increment.Value;
+        }
+
+        env.StartAutoMode(start, inc);
+        return StatementResult.Continue;
+    }
+}
+
 public class DeleteStatement : Statement
 {
     public int? StartLine { get; }

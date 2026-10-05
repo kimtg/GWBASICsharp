@@ -73,23 +73,49 @@ public class ConsoleInputDriver : IInputDriver
             return Console.ReadLine() ?? "";
         }
 
-        var sb = new StringBuilder();
-        int cursor = 0;
-        bool insertMode = true;
-        int startCol = Math.Clamp(_screen.CursorCol - 1, 0, _screen.Width - 1);
-        int startRow = Math.Clamp(_screen.CursorRow - 1, 0, _screen.Height - 1);
+        bool oldTreat = false;
+        bool canTreat = true;
         try
         {
-            Console.SetCursorPosition(startCol, startRow);
+            oldTreat = Console.TreatControlCAsInput;
+            Console.TreatControlCAsInput = true;
         }
-        catch { }
-
-        while (true)
+        catch
         {
-            var keyInfo = ReadNextKey();
+            canTreat = false;
+        }
 
-            // Handle Function Keys F1-F10
-            if (keyInfo.Key is >= ConsoleKey.F1 and <= ConsoleKey.F10 && _environment != null)
+        try
+        {
+            var sb = new StringBuilder();
+            int cursor = 0;
+            bool insertMode = true;
+            int startCol = Math.Clamp(_screen.CursorCol - 1, 0, _screen.Width - 1);
+            int startRow = Math.Clamp(_screen.CursorRow - 1, 0, _screen.Height - 1);
+            try
+            {
+                Console.SetCursorPosition(startCol, startRow);
+            }
+            catch { }
+
+            while (true)
+            {
+                var keyInfo = ReadNextKey();
+
+                // Handle Ctrl+C / Ctrl+Break / Pause
+                if (keyInfo.KeyChar == '\x03' || (keyInfo.Key == ConsoleKey.C && (keyInfo.Modifiers & ConsoleModifiers.Control) != 0) || keyInfo.Key == ConsoleKey.Pause)
+                {
+                    if (_environment != null && _environment.IsAutoMode)
+                    {
+                        _environment.ExitAutoMode();
+                    }
+                    _screen.WriteLine();
+                    _screen.WriteLine("Ok");
+                    return "";
+                }
+
+                // Handle Function Keys F1-F10
+                if (keyInfo.Key is >= ConsoleKey.F1 and <= ConsoleKey.F10 && _environment != null)
             {
                 int fIndex = (keyInfo.Key - ConsoleKey.F1) + 1;
                 string macro = _environment.GetFunctionKey(fIndex);
@@ -227,6 +253,14 @@ public class ConsoleInputDriver : IInputDriver
             }
         }
     }
+    finally
+    {
+        if (canTreat)
+        {
+            try { Console.TreatControlCAsInput = oldTreat; } catch { }
+        }
+    }
+}
 
     private void AddToHistory(string line)
     {

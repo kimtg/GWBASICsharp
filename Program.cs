@@ -48,6 +48,12 @@ public static class Program
                 screen.WriteLine($"\r\nBreak in {environment.CurrentLineNumber}");
                 screen.WriteLine("Ok");
             }
+            else if (environment.IsAutoMode)
+            {
+                e.Cancel = true;
+                environment.ExitAutoMode();
+                screen.WriteLine("\r\nOk");
+            }
             else
             {
                 ConsoleScreenDriver.ExitAlternateBuffer();

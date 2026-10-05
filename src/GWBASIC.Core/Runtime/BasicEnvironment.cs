@@ -49,11 +49,45 @@ public class BasicEnvironment
     private readonly string[] _functionKeys = new string[10];
 
     // Execution state
+    public bool IsProgramRunning { get; set; }
     public bool IsTron { get; set; }
     public int CurrentLineNumber { get; set; }
     public int CurrentStatementIndex { get; set; }
     public bool IsPaused { get; set; }
     public (int Line, int StmtIndex) PauseLocation { get; set; }
+
+    // AUTO mode state
+    public bool IsAutoMode { get; private set; }
+    public int AutoLineNumber { get; set; }
+    public int AutoIncrement { get; set; } = 10;
+
+    public void StartAutoMode(int startLine, int increment)
+    {
+        IsAutoMode = true;
+        AutoLineNumber = startLine;
+        AutoIncrement = increment;
+    }
+
+    public void ExitAutoMode()
+    {
+        IsAutoMode = false;
+    }
+
+    public void PrintAutoPrompt()
+    {
+        if (!IsAutoMode) return;
+
+        if (AutoLineNumber > 65529)
+        {
+            ExitAutoMode();
+            Screen.WriteLine("Ok");
+            return;
+        }
+
+        bool exists = Program.GetLine(AutoLineNumber) != null;
+        string marker = exists ? "* " : " ";
+        Screen.Write($"{AutoLineNumber}{marker}");
+    }
 
     // Graphics state
     public int LastGraphicX { get; set; }
@@ -850,6 +884,9 @@ public class BasicEnvironment
     {
         Program.Clear();
         ClearVariables();
+        ExitAutoMode();
+        CurrentLineNumber = 0;
+        AutoIncrement = 10;
     }
 
     public void DeleteProgramLines(int? start, int? end)
