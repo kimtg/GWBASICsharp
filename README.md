@@ -10,18 +10,18 @@ An authentic, modern C# (.NET 10) implementation of **Microsoft GW-BASIC 3.23** 
 
 ## Features & GW-BASIC Fidelity
 
-### 1. Dual Execution Environments
-- **`GWBASIC.Console`**:
-  - Classic 80x25 terminal layout.
+### 1. Unified Console & On-Demand Graphics
+- **Terminal Direct Mode & REPL**:
+  - Classic 80x25 terminal layout with alternate screen buffer support.
   - Authentic 25th row function key soft labels (`1LIST 2RUN<- 3LOAD" 4SAVE" 5CONT 6,"LPT1 7TRON 8TROFF 9KEY 0SCREEN`).
   - Full in-place line editing with history, cursor motion, and live function key macro expansion (F1–F10).
-  - CLI execution support: `dotnet run --project src/GWBASIC.Console <program.bas>`.
-- **`GWBASIC.Desktop`**:
-  - Windows Forms retro CRT display with hardware-scaled pixel rendering and double-buffering.
-  - Realistic blinking underline cursor at 30 FPS.
-  - Authentic 16-color IBM CGA palette.
-  - Real-time graphics and text rendering for `SCREEN 0`, `SCREEN 1` (320x200 4-color CGA), and `SCREEN 2` (640x200 monochrome CGA).
-  - PC Speaker sound synthesis using Windows audio drivers.
+  - Just run `dotnet run` directly from the repository root!
+- **On-Demand CGA Graphics Window**:
+  - Automatically pops up whenever entering graphics mode via `SCREEN 1` (320x200 CGA 4-color) or `SCREEN 2` (640x200 CGA 2-color high-resolution).
+  - Hardware-scaled pixel rendering (640x400 internal canvas scaled to retro CRT aspect ratio) with double-buffering.
+  - Pixel-accurate CGA graphics primitives: `LINE` (with Bresenham rasterization, box, and filled box), `CIRCLE` (with aspect ratio), `PAINT` (instant scanline flood fill), `PSET`, `PRESET`, `POINT`, and full `DRAW` macro language.
+  - In-window text printing: `PRINT`, `PRINT USING`, and `LOCATE` render directly inside the graphics canvas.
+  - Switching back to `SCREEN 0` seamlessly hides the graphics window and returns input focus to the terminal.
 
 ### 2. Language Semantics & Syntax
 - **Classic Line Numbering & Direct Mode**:
@@ -73,7 +73,7 @@ An authentic, modern C# (.NET 10) implementation of **Microsoft GW-BASIC 3.23** 
   - `LINE [(x1, y1)]-(x2, y2)[, [color][, [B|BF]]]`.
   - `CIRCLE (x, y), radius[, [color][, [start][, [end][, aspect]]]]`.
   - `PAINT (x, y)[, [paint_color][, boundary_color]]` (flood fill).
-  - `DRAW string`: Complete Music/Graphics Macro Language supporting `U`, `D`, `L`, `R`, `E`, `F`, `G`, `H`, `M[+|-]x,[+|-]y`, `B` (move without plotting), `N` (plot without moving cursor), `C` (color), `S` (scale), `A` (rotation).
+  - `DRAW string`: Complete Graphics Macro Language supporting `U`, `D`, `L`, `R`, `E`, `F`, `G`, `H`, `M[+|-]x,[+|-]y`, `B` (move without plotting), `N` (plot without moving cursor), `C` (color), `S` (scale), `A` (rotation).
 - **Audio Synthesis**:
   - `BEEP` (standard 800 Hz alert tone).
   - `SOUND freq, duration`.
@@ -93,21 +93,21 @@ An authentic, modern C# (.NET 10) implementation of **Microsoft GW-BASIC 3.23** 
 
 ```
 GWBASICsharp/
-├── GWBASICsharp.sln
+├── GWBASICsharp.slnx               # Visual Studio / .NET Solution
+├── GWBASIC.Console.csproj          # Host Console Application (runs directly with 'dotnet run')
+├── Program.cs                      # Entry point, REPL, argument handling & alternate buffer
+├── Drivers/                        # Host Drivers
+│   ├── ConsoleAudioDriver.cs       # Win32 Console PC Speaker / Beep audio synthesis
+│   ├── ConsoleInputDriver.cs       # In-place line editor, key queue & F1-F10 expansion
+│   ├── ConsoleScreenDriver.cs      # Screen buffer, CGA rasterizer & window manager
+│   └── GraphicsWindow.cs           # On-demand WinForms CGA display window
 ├── src/
-│   ├── GWBASIC.Core/               # Core engine (Parser, Lexer, Runtime, Drivers)
-│   │   ├── Common/                 # Values, Types, CGA Palette, Error Codes
-│   │   ├── Lexer/                  # Tokenizer & Keyword Tables
-│   │   ├── Parser/                 # Pratt Expression & Statement AST
-│   │   ├── Runtime/                # Environment, Program, Interpreter, MML, Draw, Formatter
-│   │   └── Drivers/                # Virtual, Console, and Physical I/O Drivers
-│   ├── GWBASIC.Console/            # 80x25 Terminal REPL & CLI Runner
-│   │   ├── Drivers/                # Win32 Console Screen, Audio, Input
-│   │   └── Program.cs              # Entry point & Ctrl+C / Ctrl+Break handling
-│   └── GWBASIC.Desktop/            # WinForms Retro CRT Emulator
-│       ├── Drivers/                # GUI Framebuffer Screen & Audio Drivers
-│       ├── Form1.cs                # 30 FPS CRT Canvas & IBM PC Key Handling
-│       └── Program.cs              # GUI Entry point
+│   └── GWBASIC.Core/               # Core engine (Parser, Lexer, Runtime, Drivers)
+│       ├── Common/                 # Values, Types, CGA Palette, Error Codes
+│       ├── Lexer/                  # Tokenizer & Keyword Tables
+│       ├── Parser/                 # Pratt Expression & Statement AST
+│       ├── Runtime/                # Environment, Program, Interpreter, MML, Draw, Formatter
+│       └── Drivers/                # IScreenDriver, IAudioDriver, IInputDriver interfaces
 ├── tests/
 │   └── GWBASIC.Tests/              # 41 Unit & Integration Tests (xUnit)
 └── samples/                        # Classic GW-BASIC Programs
@@ -126,43 +126,54 @@ GWBASICsharp/
 
 ### Prerequisites
 - [.NET 10.0 SDK](https://dotnet.microsoft.com/) or later
-- Windows 10/11 (for Console and WinForms Desktop hosts; Core library is cross-platform)
+- Windows 10/11
 
 ### Build the Solution
 ```powershell
-dotnet build
+dotnet build GWBASICsharp.slnx
 ```
 
 ### Run Tests
 ```powershell
-dotnet test
+dotnet test GWBASICsharp.slnx
 ```
 
-### Run the Console Terminal REPL
+### Run the Interactive Console REPL
+Simply execute `dotnet run` directly from the repository root:
 ```powershell
-dotnet run --project src/GWBASIC.Console
+dotnet run
 ```
 
 ### Run a Program Directly
 ```powershell
-dotnet run --project src/GWBASIC.Console samples/PRIMES.BAS
-dotnet run --project src/GWBASIC.Console samples/MANDEL.BAS
-dotnet run --project src/GWBASIC.Console samples/MUSIC.BAS
-dotnet run --project src/GWBASIC.Console samples/FILEIO.BAS
-dotnet run --project src/GWBASIC.Console samples/LUNAR.BAS
-dotnet run --project src/GWBASIC.Console samples/ELIZA.BAS
-```
-
-### Launch the Retro CRT Desktop Window
-```powershell
-dotnet run --project src/GWBASIC.Desktop
+dotnet run samples/PRIMES.BAS
+dotnet run samples/GRAPHICS.BAS
+dotnet run samples/MANDEL.BAS
+dotnet run samples/MUSIC.BAS
+dotnet run samples/FILEIO.BAS
+dotnet run samples/LUNAR.BAS
+dotnet run samples/ELIZA.BAS
 ```
 
 ---
 
 ## Sample Programs
 
-### 1. Sieve of Eratosthenes (`PRIMES.BAS`)
+### 1. CGA Graphics Demo (`GRAPHICS.BAS`)
+Opens the on-demand graphics window in `SCREEN 1` (320x200 4-color CGA), draws filled color boxes, a circle with flood fill (`PAINT`), and a box using the `DRAW` macro language:
+```basic
+40 SCREEN 1: CLS: COLOR 1, 0
+50 PRINT "SCREEN 1 - 320x200 CGA 4-COLOR MODE"
+70 LINE (10, 30)-(100, 70), 1, BF
+80 LINE (110, 30)-(200, 70), 2, BF
+90 LINE (210, 30)-(300, 70), 3, BF
+110 CIRCLE (160, 130), 40, 1
+120 PAINT (160, 130), 2, 1
+140 DRAW "BM160,130 C3 U20 R20 D20 L20"
+150 PRINT "Graphics rendering complete."
+```
+
+### 2. Sieve of Eratosthenes (`PRIMES.BAS`)
 Calculates and displays primes up to 100 with formatted counts:
 ```basic
 10 REM PRIME NUMBERS (SIEVE OF ERATOSTHENES)
@@ -181,7 +192,7 @@ Calculates and displays primes up to 100 with formatted counts:
 180 PRINT USING "Found ### prime numbers up to 100."; COUNT
 ```
 
-### 2. Random Access Records (`FILEIO.BAS`)
+### 3. Random Access Records (`FILEIO.BAS`)
 Demonstrates database records stored in fixed-length files using `FIELD`, `LSET`, `PUT`, `GET`, `MKI$`, and `MKD$`:
 ```basic
 50 OPEN "EMPLOYEES.DAT" AS #1 LEN = 32
@@ -197,7 +208,7 @@ Demonstrates database records stored in fixed-length files using `FIELD`, `LSET`
 260 PRINT USING "RECORD _#: ## | ID: #### | NAME: \                  \ | SALARY: $$##,###.##"; 1; EID%; ENAME$; ESAL#
 ```
 
-### 3. Beethoven's Ode to Joy (`MUSIC.BAS`)
+### 4. Beethoven's Ode to Joy (`MUSIC.BAS`)
 Plays multi-octave music via the Music Macro Language:
 ```basic
 40 PRINT "Playing Beethoven's Ode to Joy..."

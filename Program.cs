@@ -25,6 +25,7 @@ public static class Program
         var screen = new ConsoleScreenDriver();
         var audio = new ConsoleAudioDriver();
         var input = new ConsoleInputDriver(screen);
+        screen.AttachInputDriver(input);
         var fileSystem = new PhysicalFileSystemDriver();
 
         var environment = new BasicEnvironment(screen, audio, input, fileSystem);
@@ -34,6 +35,7 @@ public static class Program
         AppDomain.CurrentDomain.ProcessExit += (sender, e) =>
         {
             ConsoleScreenDriver.ExitAlternateBuffer();
+            screen.Dispose();
         };
 
         // Handle Ctrl+C / Ctrl+Break
@@ -103,5 +105,6 @@ public static class Program
         }
 
         ConsoleScreenDriver.ExitAlternateBuffer();
+        screen.Dispose();
     }
 }

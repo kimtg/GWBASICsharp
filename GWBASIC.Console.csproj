@@ -1,15 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\GWBASIC.Core\GWBASIC.Core.csproj" />
+    <ProjectReference Include="src\GWBASIC.Core\GWBASIC.Core.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <DefaultItemExcludes>$(DefaultItemExcludes);src\**;tests\**</DefaultItemExcludes>
   </PropertyGroup>
 
 </Project>

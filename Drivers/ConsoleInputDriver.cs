@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using GWBASIC.Core.Drivers;
 using GWBASIC.Core.Runtime;
@@ -10,6 +11,7 @@ public class ConsoleInputDriver : IInputDriver
     private BasicEnvironment? _environment;
     private readonly List<string> _history = new();
     private int _historyIndex = -1;
+    private readonly ConcurrentQueue<ConsoleKeyInfo> _windowKeyQueue = new();
 
     public ConsoleInputDriver(IScreenDriver screen)
     {
@@ -21,17 +23,47 @@ public class ConsoleInputDriver : IInputDriver
         _environment = env;
     }
 
-    public bool KeyAvailable => !Console.IsInputRedirected && Console.KeyAvailable;
+    public void EnqueueKey(ConsoleKeyInfo key)
+    {
+        _windowKeyQueue.Enqueue(key);
+    }
+
+    public bool KeyAvailable => !_windowKeyQueue.IsEmpty || (!Console.IsInputRedirected && Console.KeyAvailable);
 
     public string? ReadInkey()
     {
-        if (Console.IsInputRedirected || !Console.KeyAvailable) return null;
-        var keyInfo = Console.ReadKey(true);
-        if (keyInfo.KeyChar != '\0')
-            return keyInfo.KeyChar.ToString();
+        if (_windowKeyQueue.TryDequeue(out var queuedKey))
+        {
+            if (queuedKey.KeyChar != '\0')
+                return queuedKey.KeyChar.ToString();
+            return "\0" + ((char)queuedKey.Key);
+        }
 
-        // Extended keys (2-byte sequence in GW-BASIC: chr$(0) + code)
-        return "\0" + ((char)keyInfo.Key);
+        if (!Console.IsInputRedirected && Console.KeyAvailable)
+        {
+            var keyInfo = Console.ReadKey(true);
+            if (keyInfo.KeyChar != '\0')
+                return keyInfo.KeyChar.ToString();
+
+            // Extended keys (2-byte sequence in GW-BASIC: chr$(0) + code)
+            return "\0" + ((char)keyInfo.Key);
+        }
+
+        return null;
+    }
+
+    private ConsoleKeyInfo ReadNextKey()
+    {
+        while (true)
+        {
+            if (_windowKeyQueue.TryDequeue(out var queuedKey))
+                return queuedKey;
+
+            if (!Console.IsInputRedirected && Console.KeyAvailable)
+                return Console.ReadKey(true);
+
+            Thread.Sleep(10);
+        }
     }
 
     public string ReadLine()
@@ -54,7 +86,7 @@ public class ConsoleInputDriver : IInputDriver
 
         while (true)
         {
-            var keyInfo = Console.ReadKey(true);
+            var keyInfo = ReadNextKey();
 
             // Handle Function Keys F1-F10
             if (keyInfo.Key is >= ConsoleKey.F1 and <= ConsoleKey.F10 && _environment != null)
@@ -206,26 +238,46 @@ public class ConsoleInputDriver : IInputDriver
         }
     }
 
-    private static void RedrawLine(StringBuilder sb, int cursor, int startCol, int startRow)
+    private void RedrawLine(StringBuilder sb, int cursor, int startCol, int startRow)
     {
-        try
+        if (_screen.Mode != 0)
         {
-            Console.SetCursorPosition(startCol, startRow);
-            Console.Write(sb.ToString() + " ");
-            UpdateCursorPos(startCol, startRow, cursor);
+            _screen.Locate(startRow + 1, startCol + 1);
+            _screen.Write(sb.ToString() + " ");
+            int total = startCol + cursor;
+            int r = startRow + (total / _screen.Width);
+            int c = total % _screen.Width;
+            _screen.Locate(r + 1, c + 1);
         }
-        catch { }
+        else
+        {
+            try
+            {
+                Console.SetCursorPosition(startCol, startRow);
+                Console.Write(sb.ToString() + " ");
+                UpdateCursorPos(startCol, startRow, cursor);
+            }
+            catch { }
+        }
     }
 
-    private static void UpdateCursorPos(int startCol, int startRow, int cursor)
+    private void UpdateCursorPos(int startCol, int startRow, int cursor)
     {
-        try
+        int total = startCol + cursor;
+        int r = startRow + (total / _screen.Width);
+        int c = total % _screen.Width;
+
+        if (_screen.Mode != 0)
         {
-            int total = startCol + cursor;
-            int r = startRow + (total / 80);
-            int c = total % 80;
-            Console.SetCursorPosition(c, r);
+            _screen.Locate(r + 1, c + 1);
         }
-        catch { }
+        else
+        {
+            try
+            {
+                Console.SetCursorPosition(c, r);
+            }
+            catch { }
+        }
     }
 }

@@ -1,8 +1,7 @@
 <Solution>
+  <Project Path="GWBASIC.Console.csproj" />
   <Folder Name="/src/">
-    <Project Path="src/GWBASIC.Console/GWBASIC.Console.csproj" />
     <Project Path="src/GWBASIC.Core/GWBASIC.Core.csproj" />
-    <Project Path="src/GWBASIC.Desktop/GWBASIC.Desktop.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/GWBASIC.Tests/GWBASIC.Tests.csproj" />
