@@ -13,7 +13,7 @@ An authentic, modern C# (.NET 10) implementation of **Microsoft GW-BASIC 3.23** 
 ### 1. Unified Console & On-Demand Graphics
 - **Terminal Direct Mode & REPL**:
   - Classic 80x25 terminal layout with alternate screen buffer support.
-  - Authentic 25th row function key soft labels (`1LIST 2RUN<- 3LOAD" 4SAVE" 5CONT 6,"LPT1 7TRON 8TROFF 9KEY 0SCREEN`).
+  - Authentic 25th row function key soft labels (`1LIST 2RUN<- 3LOAD" 4SAVE" 5CONT<- 6,"LPT1 7TRON<- 8TROFF<- 9KEY 0SCREEN`).
   - Full in-place line editing with history, cursor motion, and live function key macro expansion (F1–F10).
   - Just run `dotnet run` directly from the repository root!
 - **On-Demand CGA Graphics Window**:
