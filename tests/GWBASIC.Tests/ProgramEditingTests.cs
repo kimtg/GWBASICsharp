@@ -87,9 +87,16 @@ public class ProgramEditingTests
         // Initial state: row 25 has function keys
         string row25Initial = _screen.ReadLine(25);
         Assert.Contains("1LIST", row25Initial);
+        Assert.Contains("0SCREEN", row25Initial);
         Assert.True(_screen.KeyRowVisible);
 
-        // KEY OFF without CLS: immediately hides row 25
+        // Long macro: should truncate on row 25 and not overflow
+        _interpreter.ExecuteInputLine("KEY 10, \"VERY LONG MACRO THAT WOULD OVERFLOW PAST 80 COLUMNS\"");
+        string row25Long = _screen.ReadLine(25);
+        Assert.Contains("0VERY LO", row25Long);
+        Assert.True(row25Long.Length <= 80);
+
+        // KEY OFF without CLS: immediately hides row 25 completely
         _interpreter.ExecuteInputLine("KEY OFF");
         Assert.False(_screen.KeyRowVisible);
         string row25Off = _screen.ReadLine(25);

@@ -171,16 +171,24 @@ public class VirtualScreenDriver : IScreenDriver
     {
         int r = Height - 1;
         int col = 0;
-        for (int i = 0; i < 10; i++)
+        int keyCount = Width == 40 ? 5 : 10;
+        int slotLabelLen = (Width / keyCount) - 1;
+
+        for (int i = 0; i < keyCount; i++)
         {
             string label = i < _keyLabels.Length && _keyLabels[i] != null ? _keyLabels[i] : "";
             string num = ((i + 1) % 10).ToString();
             string rest = label.Length > 1 ? label[1..] : "";
-            string chunk = num + rest.PadRight(7);
+            string labelText = rest.Length > slotLabelLen ? rest[..slotLabelLen] : rest.PadRight(slotLabelLen);
+            string chunk = num + labelText;
             for (int k = 0; k < chunk.Length && col < Width; k++)
             {
                 _screenBuffer[r, col++] = chunk[k];
             }
+        }
+        while (col < Width)
+        {
+            _screenBuffer[r, col++] = ' ';
         }
     }
 

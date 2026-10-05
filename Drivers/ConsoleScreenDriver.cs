@@ -450,17 +450,26 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
 
     public void RenderKeyRow()
     {
+        int keyCount = Width == 40 ? 5 : 10;
+        int slotLabelLen = (Width / keyCount) - 1;
+
+        // Update character buffer
         int col = 0;
-        for (int i = 0; i < 10; i++)
+        for (int i = 0; i < keyCount; i++)
         {
             string label = i < _keyLabels.Length && _keyLabels[i] != null ? _keyLabels[i] : "";
             string num = ((i + 1) % 10).ToString();
             string rest = label.Length > 1 ? label[1..] : "";
-            string chunk = num + rest.PadRight(7);
+            string labelText = rest.Length > slotLabelLen ? rest[..slotLabelLen] : rest.PadRight(slotLabelLen);
+            string chunk = num + labelText;
             for (int k = 0; k < chunk.Length && col < Width; k++)
             {
                 _charBuffer[Height - 1, col++] = chunk[k];
             }
+        }
+        while (col < Width)
+        {
+            _charBuffer[Height - 1, col++] = ' ';
         }
 
         if (_isRedirected || Mode != 0) return;
@@ -471,13 +480,23 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
             var oldFg = Console.ForegroundColor;
             var oldBg = Console.BackgroundColor;
 
+            int termWidth = Width;
+            try
+            {
+                if (Console.WindowWidth > termWidth)
+                    termWidth = Console.WindowWidth;
+            }
+            catch { }
+
             Console.SetCursorPosition(0, Height - 1);
 
-            for (int i = 0; i < 10; i++)
+            int drawnCols = 0;
+            for (int i = 0; i < keyCount; i++)
             {
                 string label = i < _keyLabels.Length && _keyLabels[i] != null ? _keyLabels[i] : "";
                 string num = ((i + 1) % 10).ToString();
                 string rest = label.Length > 1 ? label[1..] : "";
+                string labelText = rest.Length > slotLabelLen ? rest[..slotLabelLen] : rest.PadRight(slotLabelLen);
 
                 Console.ForegroundColor = ConsoleColor.Black;
                 Console.BackgroundColor = ConsoleColor.White;
@@ -485,7 +504,17 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
 
                 Console.ForegroundColor = ConsoleColor.White;
                 Console.BackgroundColor = ConsoleColor.DarkCyan;
-                Console.Write(rest.PadRight(7));
+                Console.Write(labelText);
+
+                drawnCols += 1 + slotLabelLen;
+            }
+
+            // Clear any remaining columns on row 25 up to the full terminal width
+            if (termWidth > drawnCols)
+            {
+                Console.ForegroundColor = CgaPalette.GetColor(ForegroundColor).ConsoleColor;
+                Console.BackgroundColor = CgaPalette.GetColor(BackgroundColor).ConsoleColor;
+                Console.Write(new string(' ', termWidth - drawnCols));
             }
 
             Console.ForegroundColor = oldFg;
@@ -510,10 +539,24 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
             var oldFg = Console.ForegroundColor;
             var oldBg = Console.BackgroundColor;
 
+            int termWidth = Width;
+            try
+            {
+                if (Console.WindowWidth > termWidth)
+                    termWidth = Console.WindowWidth;
+            }
+            catch { }
+
             Console.SetCursorPosition(0, Height - 1);
             Console.ForegroundColor = CgaPalette.GetColor(ForegroundColor).ConsoleColor;
             Console.BackgroundColor = CgaPalette.GetColor(BackgroundColor).ConsoleColor;
-            Console.Write(new string(' ', Width));
+
+            if (_vtSupported)
+            {
+                Console.Write("\x1b[2K"); // Erase entire 25th row
+            }
+
+            Console.Write(new string(' ', termWidth));
 
             Console.ForegroundColor = oldFg;
             Console.BackgroundColor = oldBg;
