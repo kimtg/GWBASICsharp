@@ -186,6 +186,7 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
             LineAlignment = StringAlignment.Center
         };
 
+        EnableVirtualTerminal();
         Cls();
     }
 
@@ -491,11 +492,6 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
             Console.SetCursorPosition(0, Height - 1);
 
             int drawnCols = 0;
-            var normalFg = ConsoleColor.White;
-            var normalBg = ConsoleColor.Black;
-            var inverseFg = ConsoleColor.Black;
-            var inverseBg = ConsoleColor.White;
-
             for (int i = 0; i < keyCount; i++)
             {
                 string label = i < _keyLabels.Length && _keyLabels[i] != null ? _keyLabels[i] : "";
@@ -507,25 +503,49 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
 
                 int padLen = slotLabelLen - keyText.Length;
 
-                // Function key number: normal monochrome
-                Console.ForegroundColor = normalFg;
-                Console.BackgroundColor = normalBg;
-                Console.Write(num);
-
-                // Keys string only: inverse monochrome
-                if (keyText.Length > 0)
+                // Function key number: normal monochrome (pure white on pure black)
+                if (_vtSupported)
                 {
-                    Console.ForegroundColor = inverseFg;
-                    Console.BackgroundColor = inverseBg;
-                    Console.Write(keyText);
+                    Console.Write("\x1b[0m\x1b[38;2;255;255;255;48;2;0;0;0m" + num);
+                }
+                else
+                {
+                    Console.ResetColor();
+                    Console.ForegroundColor = ConsoleColor.White;
+                    Console.BackgroundColor = ConsoleColor.Black;
+                    Console.Write(num);
                 }
 
-                // Padding spaces: normal monochrome
+                // Keys string only: inverse monochrome (true pure black on true white)
+                if (keyText.Length > 0)
+                {
+                    if (_vtSupported)
+                    {
+                        Console.Write("\x1b[0m\x1b[38;2;0;0;0;48;2;255;255;255m" + keyText);
+                    }
+                    else
+                    {
+                        Console.ResetColor();
+                        Console.ForegroundColor = ConsoleColor.Black;
+                        Console.BackgroundColor = ConsoleColor.White;
+                        Console.Write(keyText);
+                    }
+                }
+
+                // Padding spaces: normal monochrome (black background)
                 if (padLen > 0)
                 {
-                    Console.ForegroundColor = normalFg;
-                    Console.BackgroundColor = normalBg;
-                    Console.Write(new string(' ', padLen));
+                    if (_vtSupported)
+                    {
+                        Console.Write("\x1b[0m\x1b[38;2;255;255;255;48;2;0;0;0m" + new string(' ', padLen));
+                    }
+                    else
+                    {
+                        Console.ResetColor();
+                        Console.ForegroundColor = ConsoleColor.White;
+                        Console.BackgroundColor = ConsoleColor.Black;
+                        Console.Write(new string(' ', padLen));
+                    }
                 }
 
                 drawnCols += 1 + slotLabelLen;
@@ -534,11 +554,24 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
             // Clear any remaining columns on row 25 up to the full terminal width in normal monochrome
             if (termWidth > drawnCols)
             {
-                Console.ForegroundColor = normalFg;
-                Console.BackgroundColor = normalBg;
-                Console.Write(new string(' ', termWidth - drawnCols));
+                if (_vtSupported)
+                {
+                    Console.Write("\x1b[0m\x1b[38;2;255;255;255;48;2;0;0;0m" + new string(' ', termWidth - drawnCols));
+                }
+                else
+                {
+                    Console.ResetColor();
+                    Console.ForegroundColor = ConsoleColor.White;
+                    Console.BackgroundColor = ConsoleColor.Black;
+                    Console.Write(new string(' ', termWidth - drawnCols));
+                }
             }
 
+            if (_vtSupported)
+            {
+                Console.Write("\x1b[0m");
+            }
+            Console.ResetColor();
             Console.ForegroundColor = oldFg;
             Console.BackgroundColor = oldBg;
             Console.SetCursorPosition(Math.Clamp(oldLeft, 0, Width - 1), Math.Clamp(oldTop, 0, Height - 1));
@@ -570,15 +603,19 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
             catch { }
 
             Console.SetCursorPosition(0, Height - 1);
-            Console.ForegroundColor = CgaPalette.GetColor(ForegroundColor).ConsoleColor;
-            Console.BackgroundColor = CgaPalette.GetColor(BackgroundColor).ConsoleColor;
-
             if (_vtSupported)
             {
-                Console.Write("\x1b[2K"); // Erase entire 25th row
+                Console.Write("\x1b[0m\x1b[2K"); // Reset all and erase entire 25th row
+                Console.Write("\x1b[38;2;255;255;255;48;2;0;0;0m" + new string(' ', termWidth));
+                Console.Write("\x1b[0m");
             }
-
-            Console.Write(new string(' ', termWidth));
+            else
+            {
+                Console.ResetColor();
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.BackgroundColor = ConsoleColor.Black;
+                Console.Write(new string(' ', termWidth));
+            }
 
             Console.ForegroundColor = oldFg;
             Console.BackgroundColor = oldBg;
