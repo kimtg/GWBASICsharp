@@ -491,29 +491,51 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
             Console.SetCursorPosition(0, Height - 1);
 
             int drawnCols = 0;
+            var normalFg = ConsoleColor.White;
+            var normalBg = ConsoleColor.Black;
+            var inverseFg = ConsoleColor.Black;
+            var inverseBg = ConsoleColor.White;
+
             for (int i = 0; i < keyCount; i++)
             {
                 string label = i < _keyLabels.Length && _keyLabels[i] != null ? _keyLabels[i] : "";
                 string num = ((i + 1) % 10).ToString();
                 string rest = label.Length > 1 ? label[1..] : "";
-                string labelText = rest.Length > slotLabelLen ? rest[..slotLabelLen] : rest.PadRight(slotLabelLen);
+                string keyText = rest;
+                if (keyText.Length > slotLabelLen)
+                    keyText = keyText[..slotLabelLen];
 
-                Console.ForegroundColor = ConsoleColor.Black;
-                Console.BackgroundColor = ConsoleColor.White;
+                int padLen = slotLabelLen - keyText.Length;
+
+                // Function key number: normal monochrome
+                Console.ForegroundColor = normalFg;
+                Console.BackgroundColor = normalBg;
                 Console.Write(num);
 
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.BackgroundColor = ConsoleColor.DarkCyan;
-                Console.Write(labelText);
+                // Keys string only: inverse monochrome
+                if (keyText.Length > 0)
+                {
+                    Console.ForegroundColor = inverseFg;
+                    Console.BackgroundColor = inverseBg;
+                    Console.Write(keyText);
+                }
+
+                // Padding spaces: normal monochrome
+                if (padLen > 0)
+                {
+                    Console.ForegroundColor = normalFg;
+                    Console.BackgroundColor = normalBg;
+                    Console.Write(new string(' ', padLen));
+                }
 
                 drawnCols += 1 + slotLabelLen;
             }
 
-            // Clear any remaining columns on row 25 up to the full terminal width
+            // Clear any remaining columns on row 25 up to the full terminal width in normal monochrome
             if (termWidth > drawnCols)
             {
-                Console.ForegroundColor = CgaPalette.GetColor(ForegroundColor).ConsoleColor;
-                Console.BackgroundColor = CgaPalette.GetColor(BackgroundColor).ConsoleColor;
+                Console.ForegroundColor = normalFg;
+                Console.BackgroundColor = normalBg;
                 Console.Write(new string(' ', termWidth - drawnCols));
             }
 
