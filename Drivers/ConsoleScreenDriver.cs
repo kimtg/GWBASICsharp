@@ -178,9 +178,9 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
         GraphicContext.InterpolationMode = InterpolationMode.NearestNeighbor;
         GraphicContext.PixelOffsetMode = PixelOffsetMode.Half;
 
-        _fontMode1 = new Font("Consolas", 12f, FontStyle.Bold, GraphicsUnit.Pixel);
-        _fontMode2 = new Font("Consolas", 11f, FontStyle.Regular, GraphicsUnit.Pixel);
-        _stringFormat = new StringFormat
+        _fontMode1 = new Font("Consolas", 13f, FontStyle.Bold, GraphicsUnit.Pixel);
+        _fontMode2 = new Font("Consolas", 12f, FontStyle.Regular, GraphicsUnit.Pixel);
+        _stringFormat = new StringFormat(StringFormat.GenericTypographic)
         {
             Alignment = StringAlignment.Center,
             LineAlignment = StringAlignment.Center
@@ -340,7 +340,9 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
                 {
                     int cellW = Mode == 1 ? 16 : 8;
                     int cellH = 16;
-                    var rect = new RectangleF(c * cellW, r * cellH, cellW, cellH);
+                    int cellX = c * cellW;
+                    int cellY = r * cellH;
+                    var rect = new Rectangle(cellX, cellY, cellW, cellH);
 
                     var bgCol = CgaPalette.GetColor(BackgroundColor);
                     using var bgBrush = new SolidBrush(Color.FromArgb(bgCol.R, bgCol.G, bgCol.B));
@@ -351,7 +353,15 @@ public class ConsoleScreenDriver : IScreenDriver, IDisposable
                         var fgCol = GetScreenColor(ForegroundColor);
                         using var fgBrush = new SolidBrush(Color.FromArgb(fgCol.R, fgCol.G, fgCol.B));
                         var font = Mode == 1 ? _fontMode1 : _fontMode2;
-                        GraphicContext.DrawString(ch.ToString(), font, fgBrush, rect, _stringFormat);
+
+                        float scaleX = Mode == 1 ? 2.0f : 1.15f;
+                        float unscaledW = cellW / scaleX;
+                        var unscaledRect = new RectangleF(0, 0, unscaledW, cellH);
+
+                        GraphicContext.TranslateTransform(cellX, cellY);
+                        GraphicContext.ScaleTransform(scaleX, 1.0f);
+                        GraphicContext.DrawString(ch.ToString(), font, fgBrush, unscaledRect, _stringFormat);
+                        GraphicContext.ResetTransform();
                     }
                 }
             }
