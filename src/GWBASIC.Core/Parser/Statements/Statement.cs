@@ -581,15 +581,26 @@ public enum ResumeTarget { Line, Next, Current }
 public class ResumeStatement : Statement
 {
     public ResumeTarget Target { get; }
-    public int? LineNumberTarget { get; }
+    public Expression? TargetExpression { get; }
 
-    public ResumeStatement(ResumeTarget target, int? lineNumberTarget = null)
+    public ResumeStatement(ResumeTarget target, Expression? targetExpression = null)
     {
         Target = target;
-        LineNumberTarget = lineNumberTarget;
+        TargetExpression = targetExpression;
     }
 
-    public override StatementResult Execute(BasicEnvironment env) => env.ExecuteResume(Target, LineNumberTarget);
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        int? targetLine = null;
+        if (TargetExpression != null)
+        {
+            int l = TargetExpression.Evaluate(env).AsInteger;
+            if (l == 0)
+                return env.ExecuteResume(ResumeTarget.Current, null);
+            targetLine = l;
+        }
+        return env.ExecuteResume(Target, targetLine);
+    }
 }
 
 public class DataStatement : Statement
@@ -921,22 +932,28 @@ public class PsetStatement : Statement
 
     public override StatementResult Execute(BasicEnvironment env)
     {
-        int px = X.Evaluate(env).AsInteger;
-        int py = Y.Evaluate(env).AsInteger;
-        if (IsPreset)
+        double rx = X.Evaluate(env).AsDouble;
+        double ry = Y.Evaluate(env).AsDouble;
+        var (px, py) = env.MapCoordinates(rx, ry);
+        if (env.IsInViewport(px, py))
         {
-            if (Color != null)
-                env.Screen.PSet(px, py, Color.Evaluate(env).AsInteger);
+            if (IsPreset)
+            {
+                if (Color != null)
+                    env.Screen.PSet(px, py, Color.Evaluate(env).AsInteger);
+                else
+                    env.Screen.PReset(px, py);
+            }
             else
-                env.Screen.PReset(px, py);
-        }
-        else
-        {
-            int col = Color != null ? Color.Evaluate(env).AsInteger : env.Screen.ForegroundColor;
-            env.Screen.PSet(px, py, col);
+            {
+                int col = Color != null ? Color.Evaluate(env).AsInteger : env.Screen.ForegroundColor;
+                env.Screen.PSet(px, py, col);
+            }
         }
         env.LastGraphicX = px;
         env.LastGraphicY = py;
+        env.LastGraphicWorldX = rx;
+        env.LastGraphicWorldY = ry;
         return StatementResult.Continue;
     }
 }
@@ -966,16 +983,21 @@ public class LineGraphicsStatement : Statement
 
     public override StatementResult Execute(BasicEnvironment env)
     {
-        int x1 = X1 != null ? X1.Evaluate(env).AsInteger : env.LastGraphicX;
-        int y1 = Y1 != null ? Y1.Evaluate(env).AsInteger : env.LastGraphicY;
-        int x2 = X2.Evaluate(env).AsInteger;
-        int y2 = Y2.Evaluate(env).AsInteger;
+        double rx1 = X1 != null ? X1.Evaluate(env).AsDouble : (env.HasWindow ? env.LastGraphicWorldX : env.LastGraphicX);
+        double ry1 = Y1 != null ? Y1.Evaluate(env).AsDouble : (env.HasWindow ? env.LastGraphicWorldY : env.LastGraphicY);
+        double rx2 = X2.Evaluate(env).AsDouble;
+        double ry2 = Y2.Evaluate(env).AsDouble;
+
+        var (x1, y1) = env.MapCoordinates(rx1, ry1);
+        var (x2, y2) = env.MapCoordinates(rx2, ry2);
         int col = Color != null ? Color.Evaluate(env).AsInteger : env.Screen.ForegroundColor;
         ushort style = Style != null ? (ushort)Style.Evaluate(env).AsInteger : (ushort)0xFFFF;
 
         env.Screen.Line(x1, y1, x2, y2, col, Box, BoxFill, style);
         env.LastGraphicX = x2;
         env.LastGraphicY = y2;
+        env.LastGraphicWorldX = rx2;
+        env.LastGraphicWorldY = ry2;
         return StatementResult.Continue;
     }
 }
@@ -1003,8 +1025,9 @@ public class CircleStatement : Statement
 
     public override StatementResult Execute(BasicEnvironment env)
     {
-        int xc = X.Evaluate(env).AsInteger;
-        int yc = Y.Evaluate(env).AsInteger;
+        double rx = X.Evaluate(env).AsDouble;
+        double ry = Y.Evaluate(env).AsDouble;
+        var (xc, yc) = env.MapCoordinates(rx, ry);
         int r = Radius.Evaluate(env).AsInteger;
         int col = Color != null ? Color.Evaluate(env).AsInteger : env.Screen.ForegroundColor;
         double s = Start != null ? Start.Evaluate(env).AsDouble : 0.0;
@@ -1014,6 +1037,8 @@ public class CircleStatement : Statement
         env.Screen.Circle(xc, yc, r, col, s, e, asp);
         env.LastGraphicX = xc;
         env.LastGraphicY = yc;
+        env.LastGraphicWorldX = rx;
+        env.LastGraphicWorldY = ry;
         return StatementResult.Continue;
     }
 }
@@ -1035,12 +1060,144 @@ public class PaintStatement : Statement
 
     public override StatementResult Execute(BasicEnvironment env)
     {
-        int x = X.Evaluate(env).AsInteger;
-        int y = Y.Evaluate(env).AsInteger;
+        double rx = X.Evaluate(env).AsDouble;
+        double ry = Y.Evaluate(env).AsDouble;
+        var (x, y) = env.MapCoordinates(rx, ry);
         int pCol = PaintColor != null ? PaintColor.Evaluate(env).AsInteger : env.Screen.ForegroundColor;
         int bCol = BoundaryColor != null ? BoundaryColor.Evaluate(env).AsInteger : pCol;
 
-        env.Screen.Paint(x, y, pCol, bCol);
+        if (env.IsInViewport(x, y))
+        {
+            env.Screen.Paint(x, y, pCol, bCol);
+        }
+        return StatementResult.Continue;
+    }
+}
+
+public class GraphicsGetStatement : Statement
+{
+    public Expression X1 { get; }
+    public Expression Y1 { get; }
+    public Expression X2 { get; }
+    public Expression Y2 { get; }
+    public string ArrayName { get; }
+
+    public GraphicsGetStatement(Expression x1, Expression y1, Expression x2, Expression y2, string arrayName)
+    {
+        X1 = x1;
+        Y1 = y1;
+        X2 = x2;
+        Y2 = y2;
+        ArrayName = arrayName;
+    }
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        int x1 = X1.Evaluate(env).AsInteger;
+        int y1 = Y1.Evaluate(env).AsInteger;
+        int x2 = X2.Evaluate(env).AsInteger;
+        int y2 = Y2.Evaluate(env).AsInteger;
+        env.GraphicsGet(x1, y1, x2, y2, ArrayName);
+        return StatementResult.Continue;
+    }
+}
+
+public class GraphicsPutStatement : Statement
+{
+    public Expression X { get; }
+    public Expression Y { get; }
+    public string ArrayName { get; }
+    public PutAction Action { get; }
+
+    public GraphicsPutStatement(Expression x, Expression y, string arrayName, PutAction action = PutAction.Xor)
+    {
+        X = x;
+        Y = y;
+        ArrayName = arrayName;
+        Action = action;
+    }
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        int x = X.Evaluate(env).AsInteger;
+        int y = Y.Evaluate(env).AsInteger;
+        env.GraphicsPut(x, y, ArrayName, Action);
+        return StatementResult.Continue;
+    }
+}
+
+public class WindowStatement : Statement
+{
+    public Expression? X1 { get; }
+    public Expression? Y1 { get; }
+    public Expression? X2 { get; }
+    public Expression? Y2 { get; }
+    public bool ScreenCoords { get; }
+
+    public WindowStatement(Expression? x1, Expression? y1, Expression? x2, Expression? y2, bool screenCoords = false)
+    {
+        X1 = x1;
+        Y1 = y1;
+        X2 = x2;
+        Y2 = y2;
+        ScreenCoords = screenCoords;
+    }
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        if (X1 == null || Y1 == null || X2 == null || Y2 == null)
+        {
+            env.SetWindow(null, null, null, null, false);
+        }
+        else
+        {
+            double x1 = X1.Evaluate(env).AsDouble;
+            double y1 = Y1.Evaluate(env).AsDouble;
+            double x2 = X2.Evaluate(env).AsDouble;
+            double y2 = Y2.Evaluate(env).AsDouble;
+            env.SetWindow(x1, y1, x2, y2, ScreenCoords);
+        }
+        return StatementResult.Continue;
+    }
+}
+
+public class ViewStatement : Statement
+{
+    public Expression? X1 { get; }
+    public Expression? Y1 { get; }
+    public Expression? X2 { get; }
+    public Expression? Y2 { get; }
+    public Expression? FillColor { get; }
+    public Expression? BorderColor { get; }
+    public bool ScreenCoords { get; }
+
+    public ViewStatement(Expression? x1, Expression? y1, Expression? x2, Expression? y2, Expression? fillColor = null, Expression? borderColor = null, bool screenCoords = false)
+    {
+        X1 = x1;
+        Y1 = y1;
+        X2 = x2;
+        Y2 = y2;
+        FillColor = fillColor;
+        BorderColor = borderColor;
+        ScreenCoords = screenCoords;
+    }
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        if (X1 == null || Y1 == null || X2 == null || Y2 == null)
+        {
+            env.SetView(null, null, null, null, null, null, false);
+        }
+        else
+        {
+            int x1 = X1.Evaluate(env).AsInteger;
+            int y1 = Y1.Evaluate(env).AsInteger;
+            int x2 = X2.Evaluate(env).AsInteger;
+            int y2 = Y2.Evaluate(env).AsInteger;
+            int? fill = FillColor?.Evaluate(env).AsInteger;
+            int? border = BorderColor?.Evaluate(env).AsInteger;
+            env.SetView(x1, y1, x2, y2, fill, border, ScreenCoords);
+        }
         return StatementResult.Continue;
     }
 }
@@ -1095,7 +1252,7 @@ public class PlayStatement : Statement
     public override StatementResult Execute(BasicEnvironment env)
     {
         string cmd = CommandExpr.Evaluate(env).AsString;
-        env.Audio.Play(cmd);
+        env.Audio.Play(cmd, env);
         return StatementResult.Continue;
     }
 }
@@ -1590,6 +1747,172 @@ public class KeyStatement : Statement
                 }
                 break;
         }
+        return StatementResult.Continue;
+    }
+}
+
+public class BsaveStatement : Statement
+{
+    public Expression FileName { get; }
+    public Expression Offset { get; }
+    public Expression Length { get; }
+
+    public BsaveStatement(Expression fileName, Expression offset, Expression length)
+    {
+        FileName = fileName;
+        Offset = offset;
+        Length = length;
+    }
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        string fn = FileName.Evaluate(env).AsString;
+        int off = Offset.Evaluate(env).AsInteger;
+        int len = Length.Evaluate(env).AsInteger;
+        env.Bsave(fn, off, len);
+        return StatementResult.Continue;
+    }
+}
+
+public class BloadStatement : Statement
+{
+    public Expression FileName { get; }
+    public Expression? Offset { get; }
+
+    public BloadStatement(Expression fileName, Expression? offset = null)
+    {
+        FileName = fileName;
+        Offset = offset;
+    }
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        string fn = FileName.Evaluate(env).AsString;
+        int? off = Offset != null ? Offset.Evaluate(env).AsInteger : null;
+        env.Bload(fn, off);
+        return StatementResult.Continue;
+    }
+}
+
+public class ShellStatement : Statement
+{
+    public Expression? Command { get; }
+    public ShellStatement(Expression? command) => Command = command;
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        string? cmd = Command?.Evaluate(env).AsString;
+        env.ExecuteShell(cmd);
+        return StatementResult.Continue;
+    }
+}
+
+public class ResetStatement : Statement
+{
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        env.CloseAllFiles();
+        return StatementResult.Continue;
+    }
+}
+
+public class CommonStatement : Statement
+{
+    public List<string> Variables { get; }
+    public CommonStatement(List<string> variables) => Variables = variables;
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        foreach (var v in Variables)
+        {
+            env.DeclareCommonVariable(v);
+        }
+        return StatementResult.Continue;
+    }
+}
+
+public class ChainStatement : Statement
+{
+    public Expression FileName { get; }
+    public Expression? TargetLine { get; }
+    public bool Merge { get; }
+    public bool All { get; }
+
+    public ChainStatement(Expression fileName, Expression? targetLine, bool merge, bool all)
+    {
+        FileName = fileName;
+        TargetLine = targetLine;
+        Merge = merge;
+        All = all;
+    }
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        string file = FileName.Evaluate(env).AsString;
+        int? line = TargetLine?.Evaluate(env).AsInteger;
+        env.ExecuteChain(file, line, Merge, All);
+        int startLine = line ?? env.Program.GetFirstLineNumber() ?? 0;
+        return StatementResult.JumpLine(startLine);
+    }
+}
+
+public class DateStatement : Statement
+{
+    public Expression Value { get; }
+    public DateStatement(Expression val) => Value = val;
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        env.SetDate(Value.Evaluate(env).AsString);
+        return StatementResult.Continue;
+    }
+}
+
+public class TimeStatement : Statement
+{
+    public Expression Value { get; }
+    public TimeStatement(Expression val) => Value = val;
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        env.SetTime(Value.Evaluate(env).AsString);
+        return StatementResult.Continue;
+    }
+}
+
+public class EnvironStatement : Statement
+{
+    public Expression Value { get; }
+    public EnvironStatement(Expression val) => Value = val;
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        env.SetEnviron(Value.Evaluate(env).AsString);
+        return StatementResult.Continue;
+    }
+}
+
+public class EditStatement : Statement
+{
+    public Expression LineExpr { get; }
+    public EditStatement(Expression lineExpr) => LineExpr = lineExpr;
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        env.EditLine(LineExpr.Evaluate(env).AsInteger);
+        return StatementResult.Continue;
+    }
+}
+
+public class OutStatement : Statement
+{
+    public Expression Port { get; }
+    public Expression Value { get; }
+    public OutStatement(Expression port, Expression val) { Port = port; Value = val; }
+
+    public override StatementResult Execute(BasicEnvironment env)
+    {
+        env.OutPort(Port.Evaluate(env).AsInteger, Value.Evaluate(env).AsInteger);
         return StatementResult.Continue;
     }
 }

@@ -2,7 +2,7 @@
 
 [![.NET 10.0](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Build & Tests](https://img.shields.io/badge/Tests-41%20Passed-brightgreen.svg)]()
+[![Build & Tests](https://img.shields.io/badge/Tests-73%20Passed-brightgreen.svg)]()
 
 An authentic, modern C# (.NET 10) implementation of **Microsoft GW-BASIC 3.23** (1983–1988), faithfully reproducing classic IBM PC BASIC syntax, runtime semantics, quirks, sound synthesis, CGA graphics, and direct-mode interactive developer experience.
 
@@ -56,8 +56,10 @@ An authentic, modern C# (.NET 10) implementation of **Microsoft GW-BASIC 3.23** 
   - `RESUME`, `RESUME NEXT`, and `RESUME line`.
   - Error variables `ERR` (error code) and `ERL` (line number where error occurred).
   - Standard error codes: `Syntax error`, `Type mismatch`, `Subscript out of range`, `Division by zero`, `Duplicate Definition`, `Out of DATA`, `Undefined line number`, etc.
-- **File I/O**:
-  - Sequential files: `OPEN file FOR INPUT|OUTPUT|APPEND AS #num`, `PRINT #num`, `WRITE #num`, `INPUT #num`, `LINE INPUT #num`, `CLOSE [#num]`.
+- **File I/O & Retro Binary Formats**:
+  - Tokenized binary programs (`0xFF` prefix) and protected scrambled programs (`0xFE` prefix with 11-byte XOR key schedule).
+  - Memory dump formats: `BSAVE filename, offset, length` and `BLOAD filename[, offset]`.
+  - Sequential files: `OPEN file FOR INPUT|OUTPUT|APPEND AS #num`, `PRINT #num`, `WRITE #num`, `INPUT #num`, `LINE INPUT #num`, `INPUT$(n[, #num])`, `CLOSE [#num]`, `RESET`.
   - Random Access files: `OPEN file AS #num LEN = reclen`, `FIELD #num, width AS var$, ...`, `LSET`, `RSET`, `PUT #num, [rec]`, `GET #num, [rec]`.
   - Binary numeric packing: `MKI$`, `CVI`, `MKS$`, `CVS`, `MKD$`, `CVD`.
   - File status: `EOF(num)`, `LOF(num)`, `LOC(num)`.
@@ -73,17 +75,27 @@ An authentic, modern C# (.NET 10) implementation of **Microsoft GW-BASIC 3.23** 
   - `LINE [(x1, y1)]-(x2, y2)[, [color][, [B|BF]]]`.
   - `CIRCLE (x, y), radius[, [color][, [start][, [end][, aspect]]]]`.
   - `PAINT (x, y)[, [paint_color][, boundary_color]]` (flood fill).
-  - `DRAW string`: Complete Graphics Macro Language supporting `U`, `D`, `L`, `R`, `E`, `F`, `G`, `H`, `M[+|-]x,[+|-]y`, `B` (move without plotting), `N` (plot without moving cursor), `C` (color), `S` (scale), `A` (rotation).
-- **Audio Synthesis**:
+  - Sprite blitting: `GET (x1, y1)-(x2, y2), array` and `PUT (x, y), array[, PSET|PRESET|AND|OR|XOR]`.
+  - Coordinate transformations and viewports: `WINDOW [[SCREEN] (x1, y1)-(x2, y2)]` and `VIEW [[SCREEN] (x1, y1)-(x2, y2)[, [fill][, [border]]]]`.
+  - `DRAW string`: Complete Graphics Macro Language supporting `U`, `D`, `L`, `R`, `E`, `F`, `G`, `H`, `M[+|-]x,[+|-]y`, `B` (move without plotting), `N` (plot without moving cursor), `C` (color), `S` (scale), `A` (rotation), `TA` (turn angle in degrees), `P` (inline paint), `Xvar$;` (macro execution), and `=var;` (numeric variable binding).
+- **Audio Synthesis & Concurrency**:
   - `BEEP` (standard 800 Hz alert tone).
   - `SOUND freq, duration`.
-  - `PLAY string`: Complete Music Macro Language (MML) supporting notes `A`–`G`, sharps `#`/`+`, flats `-`, octaves `O0`–`O6`, octave shift `>` / `<`, note durations `L1`–`L64`, dotted notes `.`, pauses `P1`–`P64`, tempo `T32`–`T255`, and articulation (`MN` Normal, `ML` Legato, `MS` Staccato).
-- **Memory Emulation**:
+  - `PLAY string`: Complete Music Macro Language (MML) supporting notes `A`–`G`, sharps `#`/`+`, flats `-`, octaves `O0`–`O6`, octave shift `>` / `<`, note durations `L1`–`L64`, dotted notes `.`, pauses `P1`–`P64`, tempo `T32`–`T255`, articulation (`MN` Normal, `ML` Legato, `MS` Staccato), background/foreground modes (`MB` / `MF`), macro expansion `Xvar$;`, and buffer status query `PLAY(0)`.
+- **Memory & Hardware Emulation**:
   - `DEF SEG [= segment]`.
   - `PEEK(address)` and `POKE address, byte`.
+  - `VARPTR(variable)`.
+  - `INP(port)` and `OUT port, value`.
+  - `LPOS(printer)`.
 - **Program & Environment Commands**:
   - `LIST [start][-end]`, `LLIST`.
   - `LOAD filename[,R]`, `SAVE filename[,A]`, `MERGE filename`.
+  - `CHAIN [MERGE] filename$[, [line][, [ALL]]]`, `COMMON var1, var2, ...`.
+  - `SHELL [command$]`.
+  - `ENVIRON "VAR=VAL"` and `ENVIRON$(name_or_index)`.
+  - `DATE$ = expr$` / `DATE$`, `TIME$ = expr$` / `TIME$`.
+  - `EDIT line`.
   - `KEY keyNum, string$` and `KEY ON` / `KEY OFF`.
   - `TRON` and `TROFF` (trace mode displays execution path: `[10][20]...`).
 

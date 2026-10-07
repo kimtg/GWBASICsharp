@@ -168,7 +168,33 @@ public class BasicLexer
         { "STR$", TokenType.StrStr },
         { "STRING$", TokenType.StringStr },
         { "TAN", TokenType.Tan },
-        { "VAL", TokenType.Val }
+        { "VAL", TokenType.Val },
+        { "VARPTR", TokenType.Varptr }
+    };
+
+    private static readonly KeyValuePair<string, TokenType>[] SortedKeywords =
+        Keywords.OrderByDescending(kv => kv.Key.Length).ToArray();
+
+    private static readonly HashSet<TokenType> StatementKeywords = new()
+    {
+        TokenType.Auto, TokenType.Beep, TokenType.Bload, TokenType.Bsave, TokenType.Call,
+        TokenType.Chain, TokenType.Circle, TokenType.Clear, TokenType.Close, TokenType.Cls,
+        TokenType.Color, TokenType.Common, TokenType.Cont, TokenType.Data, TokenType.DateStr, TokenType.Def,
+        TokenType.DefDbl, TokenType.DefInt, TokenType.DefSng, TokenType.DefStr, TokenType.Delete,
+        TokenType.Dim, TokenType.Draw, TokenType.Edit, TokenType.Else, TokenType.End,
+        TokenType.Environ, TokenType.Erase, TokenType.Error, TokenType.Field, TokenType.Files,
+        TokenType.For, TokenType.Get, TokenType.Gosub, TokenType.Goto, TokenType.If,
+        TokenType.Input, TokenType.Key, TokenType.Kill, TokenType.Let, TokenType.Line,
+        TokenType.List, TokenType.Llist, TokenType.Load, TokenType.Locate, TokenType.Lset,
+        TokenType.Merge, TokenType.Name, TokenType.New, TokenType.Next, TokenType.On,
+        TokenType.Open, TokenType.Option, TokenType.Out, TokenType.Paint, TokenType.Play,
+        TokenType.Poke, TokenType.Preset, TokenType.Print, TokenType.Pset, TokenType.Put,
+        TokenType.Randomize, TokenType.Read, TokenType.Rem, TokenType.Renum, TokenType.Reset,
+        TokenType.Restore, TokenType.Resume, TokenType.Return, TokenType.Rset, TokenType.Run,
+        TokenType.Save, TokenType.Screen, TokenType.Shell, TokenType.Sound, TokenType.Stop,
+        TokenType.Swap, TokenType.System, TokenType.Then, TokenType.TimeStr, TokenType.Troff, TokenType.Tron,
+        TokenType.View, TokenType.Wait, TokenType.Wend, TokenType.While, TokenType.Width,
+        TokenType.Window, TokenType.Write
     };
 
     private readonly string _source;
@@ -531,6 +557,56 @@ public class BasicLexer
     private Token ReadIdentifierOrKeyword()
     {
         int start = _pos;
+
+        // Special handling for FN function calls (e.g. FNA, FNB%)
+        if (_pos + 2 < _source.Length &&
+            (_source[_pos] is 'F' or 'f') &&
+            (_source[_pos + 1] is 'N' or 'n') &&
+            char.IsAsciiLetterOrDigit(_source[_pos + 2]))
+        {
+            return ReadIdentifierFull(start);
+        }
+
+        // Try matching a keyword prefix at current position
+        foreach (var kv in SortedKeywords)
+        {
+            string kw = kv.Key;
+            if (_pos + kw.Length <= _source.Length &&
+                _source.AsSpan(_pos, kw.Length).Equals(kw, StringComparison.OrdinalIgnoreCase))
+            {
+                int afterKw = _pos + kw.Length;
+
+                // 1. Exact match (followed by EOF, whitespace, operator, or delimiter)
+                if (afterKw >= _source.Length ||
+                    _source[afterKw] is ' ' or '\t' or '\r' or '\n' or ':' or ';' or ',' or '(' or ')' or '=' or '<' or '>' or '+' or '-' or '*' or '/' or '\\' or '^' or '#' or '"')
+                {
+                    _pos = afterKw;
+                    return new Token(kv.Value, _source[start.._pos], null, start, _line);
+                }
+
+                // 2. Keyword followed by digit (e.g. GOTO100, TO10, STEP2, SCREEN1, WIDTH40, COLOR1, RUN10, KEY1)
+                if (char.IsAsciiDigit(_source[afterKw]))
+                {
+                    _pos = afterKw;
+                    return new Token(kv.Value, _source[start.._pos], null, start, _line);
+                }
+
+                // 3. Statement keyword followed by identifier character (e.g. FORI, NEXTI, PRINTI, IFX, DIMX, DIMA)
+                if (StatementKeywords.Contains(kv.Value) && (char.IsAsciiLetter(_source[afterKw]) || _source[afterKw] == '.'))
+                {
+                    _pos = afterKw;
+                    return new Token(kv.Value, _source[start.._pos], null, start, _line);
+                }
+            }
+        }
+
+        // Standard identifier fallback
+        return ReadIdentifierFull(start);
+    }
+
+    private Token ReadIdentifierFull(int start)
+    {
+        _pos = start;
         while (_pos < _source.Length)
         {
             char c = _source[_pos];
@@ -552,16 +628,9 @@ public class BasicLexer
 
         string text = _source[start.._pos];
 
-        // Check for keyword match
         if (Keywords.TryGetValue(text, out TokenType type))
         {
             return new Token(type, text, null, start, _line);
-        }
-
-        // Special handling for FN function call: e.g. FNA, FNB%
-        if (text.StartsWith("FN", StringComparison.OrdinalIgnoreCase) && text.Length > 2)
-        {
-            return new Token(TokenType.Identifier, text, null, start, _line);
         }
 
         return new Token(TokenType.Identifier, text, null, start, _line);

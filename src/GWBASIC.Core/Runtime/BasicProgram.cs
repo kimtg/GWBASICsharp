@@ -1,5 +1,7 @@
+using System.Text;
 using System.Text.RegularExpressions;
 using GWBASIC.Core.Common;
+using GWBASIC.Core.Lexer;
 using GWBASIC.Core.Parser;
 using GWBASIC.Core.Parser.Statements;
 
@@ -73,7 +75,7 @@ public class BasicProgram
 
     public void Renumber(int newStart = 10, int oldStart = 0, int increment = 10)
     {
-        if (increment <= 0 || newStart <= 0)
+        if (increment <= 0 || newStart <= 0 || newStart > 65529)
             throw new BasicException(BasicErrorCode.IllegalFunctionCall);
 
         var oldLines = _lines.OrderBy(kv => kv.Key).ToList();
@@ -84,6 +86,8 @@ public class BasicProgram
         {
             if (kv.Key >= oldStart)
             {
+                if (currentNew > 65529)
+                    throw new BasicException(BasicErrorCode.IllegalFunctionCall);
                 renumMap[kv.Key] = currentNew;
                 currentNew += increment;
             }
@@ -93,7 +97,10 @@ public class BasicProgram
             }
         }
 
-        // Patch references in code using regex patterns
+        if (renumMap.Values.Distinct().Count() != renumMap.Count)
+            throw new BasicException(BasicErrorCode.IllegalFunctionCall);
+
+        // Patch references in code using token-aware parsing
         var newLines = new SortedDictionary<int, ProgramLine>();
         foreach (var kv in oldLines)
         {
@@ -112,34 +119,79 @@ public class BasicProgram
 
     private static string PatchLineReferences(string sourceText, Dictionary<int, int> map)
     {
-        // Replace line references after GOTO, GOSUB, THEN, ELSE, RUN, RESTORE
-        string pattern = @"\b(GOTO|GOSUB|THEN|ELSE|RUN|RESTORE)\s+(\d+)\b";
-        string patched = Regex.Replace(sourceText, pattern, m =>
-        {
-            string keyword = m.Groups[1].Value;
-            int oldLine = int.Parse(m.Groups[2].Value);
-            int newLine = map.TryGetValue(oldLine, out int nl) ? nl : oldLine;
-            return $"{keyword} {newLine}";
-        }, RegexOptions.IgnoreCase);
+        var lexer = new BasicLexer(sourceText);
+        var tokens = lexer.Tokenize();
+        var replacements = new List<(int Start, int Length, string NewText)>();
 
-        // Replace ON ... GOTO / GOSUB lists
-        string onPattern = @"\bON\b.+?\b(GOTO|GOSUB)\s+([0-9,\s]+)";
-        patched = Regex.Replace(patched, onPattern, m =>
+        for (int i = 0; i < tokens.Count; i++)
         {
-            string full = m.Value;
-            int idx = full.IndexOf(m.Groups[1].Value, StringComparison.OrdinalIgnoreCase);
-            string prefix = full[..(idx + m.Groups[1].Length)];
-            string nums = full[(idx + m.Groups[1].Length)..];
-
-            var parts = nums.Split(',').Select(p =>
+            var tok = tokens[i];
+            if (tok.Type is TokenType.Goto or TokenType.Gosub or TokenType.Restore or TokenType.Run or TokenType.Resume)
             {
-                if (int.TryParse(p.Trim(), out int ol) && map.TryGetValue(ol, out int nl))
-                    return $" {nl}";
-                return p;
-            });
-            return prefix + string.Join(",", parts);
-        }, RegexOptions.IgnoreCase);
+                if (i + 1 < tokens.Count && tokens[i + 1].Type == TokenType.IntegerLiteral)
+                {
+                    int oldLine = (int)tokens[i + 1].Value!.Value.AsInteger;
+                    if (map.TryGetValue(oldLine, out int newLine))
+                    {
+                        replacements.Add((tokens[i + 1].Position, tokens[i + 1].Text.Length, newLine.ToString()));
+                    }
+                    i++;
+                }
+            }
+            else if (tok.Type is TokenType.Then or TokenType.Else)
+            {
+                if (i + 1 < tokens.Count && tokens[i + 1].Type == TokenType.IntegerLiteral)
+                {
+                    int oldLine = (int)tokens[i + 1].Value!.Value.AsInteger;
+                    if (map.TryGetValue(oldLine, out int newLine))
+                    {
+                        replacements.Add((tokens[i + 1].Position, tokens[i + 1].Text.Length, newLine.ToString()));
+                    }
+                    i++;
+                }
+            }
+            else if (tok.Type == TokenType.On)
+            {
+                // Advance until Goto or Gosub
+                while (i < tokens.Count && tokens[i].Type is not (TokenType.Goto or TokenType.Gosub or TokenType.EndOfLine or TokenType.Colon))
+                {
+                    i++;
+                }
 
-        return patched;
+                if (i < tokens.Count && tokens[i].Type is (TokenType.Goto or TokenType.Gosub))
+                {
+                    i++; // move past Goto / Gosub
+                    while (i < tokens.Count && (tokens[i].Type == TokenType.IntegerLiteral || tokens[i].Type == TokenType.Comma))
+                    {
+                        if (tokens[i].Type == TokenType.IntegerLiteral)
+                        {
+                            int oldLine = (int)tokens[i].Value!.Value.AsInteger;
+                            if (map.TryGetValue(oldLine, out int newLine))
+                            {
+                                replacements.Add((tokens[i].Position, tokens[i].Text.Length, newLine.ToString()));
+                            }
+                        }
+                        i++;
+                    }
+                    i--; // back up so outer loop can continue
+                }
+            }
+        }
+
+        if (replacements.Count == 0)
+            return sourceText;
+
+        // Apply replacements from right to left so earlier indices remain valid
+        var sb = new StringBuilder(sourceText);
+        foreach (var (start, len, newText) in replacements.OrderByDescending(r => r.Start))
+        {
+            if (start >= 0 && start + len <= sb.Length)
+            {
+                sb.Remove(start, len);
+                sb.Insert(start, newText);
+            }
+        }
+
+        return sb.ToString();
     }
 }

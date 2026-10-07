@@ -59,4 +59,82 @@ public class MusicAndGraphicsTests
         Assert.Equal(3, _screen.Point(100, 90)); // U10
         Assert.Equal(3, _screen.Point(110, 90)); // R10
     }
+
+    [Fact]
+    public void TestGraphicsGetAndPutSpriteBlitting()
+    {
+        _interpreter.ExecuteInputLine("SCREEN 1");
+        _interpreter.ExecuteInputLine("LINE (10, 10)-(15, 15), 3, BF");
+        Assert.Equal(3, _screen.Point(12, 12));
+
+        // GET sprite into array A
+        _interpreter.ExecuteInputLine("DIM A%(50)");
+        _interpreter.ExecuteInputLine("GET (10, 10)-(15, 15), A%");
+
+        // PUT sprite at (30, 30) with PSET
+        _interpreter.ExecuteInputLine("PUT (30, 30), A%, PSET");
+        Assert.Equal(3, _screen.Point(32, 32));
+
+        // PUT sprite at (30, 30) with XOR - should erase it back to 0
+        _interpreter.ExecuteInputLine("PUT (30, 30), A%, XOR");
+        Assert.Equal(0, _screen.Point(32, 32));
+    }
+
+    [Fact]
+    public void TestGraphicsWindowAndViewport()
+    {
+        _interpreter.ExecuteInputLine("SCREEN 1");
+        // Set a window from (-10, -10) to (10, 10)
+        _interpreter.ExecuteInputLine("WINDOW (-10, -10)-(10, 10)");
+        // Plot (0, 0) - should map to center of screen (160, 100)
+        _interpreter.ExecuteInputLine("PSET (0, 0), 2");
+
+        Assert.Equal(2, _screen.Point(160, 100));
+
+        // Reset window
+        _interpreter.ExecuteInputLine("WINDOW");
+
+        // Set viewport with clipping
+        _interpreter.ExecuteInputLine("VIEW (50, 50)-(100, 100)");
+        // PSET inside viewport
+        _interpreter.ExecuteInputLine("PSET (10, 10), 1"); // Offset by (50, 50) => (60, 60)
+        Assert.Equal(1, _screen.Point(60, 60));
+
+        // PSET outside viewport - should be clipped
+        _interpreter.ExecuteInputLine("PSET (200, 200), 1");
+        Assert.Equal(0, _screen.Point(250, 250));
+    }
+
+    [Fact]
+    public void TestDrawExtendedMacrosAndTurnAngle()
+    {
+        _interpreter.ExecuteInputLine("SCREEN 1");
+        _interpreter.ExecuteInputLine("PSET (100, 100), 0");
+        _interpreter.ExecuteInputLine("S$ = \"U10 R10\"");
+        _interpreter.ExecuteInputLine("DRAW \"C2 XS$;\"");
+
+        Assert.Equal(2, _screen.Point(100, 90));
+        Assert.Equal(2, _screen.Point(110, 90));
+
+        // Turn angle TA 90 (counterclockwise: right becomes up)
+        _interpreter.ExecuteInputLine("PSET (50, 50), 0");
+        _interpreter.ExecuteInputLine("DRAW \"C1 TA90 R10\"");
+        Assert.Equal(1, _screen.Point(50, 40));
+    }
+
+    [Fact]
+    public void TestMusicBackgroundAndPlayQueue()
+    {
+        _interpreter.ExecuteInputLine("PLAY \"MB C D E\"");
+        Assert.True(_audio.LastPlayWasBackground);
+        Assert.True(_audio.QueuedNotes > 0);
+
+        _interpreter.ExecuteInputLine("Q = PLAY(0)");
+        Assert.Equal(_audio.QueuedNotes, _env.GetVariable("Q").AsInteger);
+
+        // Music macro expansion in PLAY
+        _interpreter.ExecuteInputLine("T$ = \"O3 G A B\"");
+        _interpreter.ExecuteInputLine("PLAY \"MF XT$;\"");
+        Assert.False(_audio.LastPlayWasBackground);
+    }
 }

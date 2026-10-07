@@ -38,4 +38,6 @@ public interface IFileSystemDriver
     string[] ListFiles(string pattern = "*.*");
     string ReadAllText(string filename);
     void WriteAllText(string filename, string content);
+    byte[] ReadAllBytes(string filename);
+    void WriteAllBytes(string filename, byte[] bytes);
 }

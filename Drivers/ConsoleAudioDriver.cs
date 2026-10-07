@@ -51,19 +51,61 @@ public class ConsoleAudioDriver : IAudioDriver
         }
     }
 
-    public void Play(string musicCommands)
+    private readonly object _lock = new();
+    private CancellationTokenSource? _bgCts;
+    private int _queuedNotes = 0;
+
+    public int QueuedNotes
+    {
+        get
+        {
+            lock (_lock) return _queuedNotes;
+        }
+    }
+
+    public void Play(string musicCommands) => Play(musicCommands, null);
+
+    public void Play(string musicCommands, BasicEnvironment? env)
     {
         if (string.IsNullOrWhiteSpace(musicCommands)) return;
 
-        var notes = MusicPlayer.Parse(musicCommands);
+        var result = MusicPlayer.ParseWithMode(musicCommands, env);
+        var notes = result.Notes;
         if (notes.Count == 0) return;
 
+        if (result.IsBackground)
+        {
+            lock (_lock)
+            {
+                _bgCts?.Cancel();
+                _bgCts = new CancellationTokenSource();
+                _queuedNotes += notes.Count;
+            }
+
+            var token = _bgCts.Token;
+            Task.Run(() =>
+            {
+                PlayNotesSequence(notes, token, isBackground: true);
+            }, token);
+        }
+        else
+        {
+            PlayNotesSequence(notes, CancellationToken.None, isBackground: false);
+        }
+    }
+
+    private void PlayNotesSequence(List<MusicNote> notes, CancellationToken token, bool isBackground)
+    {
         try
         {
             byte[] wav = SquareWaveSynthesizer.SynthesizeNotesWav(notes);
-            if (wav.Length > 0)
+            if (wav.Length > 0 && !token.IsCancellationRequested)
             {
                 SoundEngine.PlaySync(wav);
+                if (isBackground)
+                {
+                    lock (_lock) _queuedNotes = Math.Max(0, _queuedNotes - notes.Count);
+                }
                 return;
             }
         }
@@ -72,9 +114,10 @@ public class ConsoleAudioDriver : IAudioDriver
             // Fall through to note-by-note fallback if synthesis fails
         }
 
-        // Fallback for non-Windows or if WAV failed: note-by-note
         foreach (var note in notes)
         {
+            if (token.IsCancellationRequested) break;
+
             if (note.FrequencyHz >= 37 && note.DurationMs > 0)
             {
                 try
@@ -91,15 +134,25 @@ public class ConsoleAudioDriver : IAudioDriver
                 Thread.Sleep(note.DurationMs);
             }
 
-            if (note.RestMs > 0)
+            if (note.RestMs > 0 && !token.IsCancellationRequested)
             {
                 Thread.Sleep(note.RestMs);
+            }
+
+            if (isBackground)
+            {
+                lock (_lock) _queuedNotes = Math.Max(0, _queuedNotes - 1);
             }
         }
     }
 
     public void Stop()
     {
+        lock (_lock)
+        {
+            _bgCts?.Cancel();
+            _queuedNotes = 0;
+        }
         SoundEngine.Stop();
     }
 }

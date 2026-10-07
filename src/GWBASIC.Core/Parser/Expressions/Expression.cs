@@ -411,17 +411,58 @@ public class FunctionCallExpression : Expression
 
             case "DATE$":
                 EnsureArgCount(args, 0);
-                return BasicValue.FromString(DateTime.Now.ToString("MM-dd-yyyy", CultureInfo.InvariantCulture));
+                return BasicValue.FromString(env.CurrentDate);
 
             case "TIME$":
                 EnsureArgCount(args, 0);
-                return BasicValue.FromString(DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture));
+                return BasicValue.FromString(env.CurrentTime);
 
             case "ENVIRON$":
                 EnsureArgCount(args, 1);
-                string envName = args[0].Evaluate(env).AsString;
-                string? envVal = Environment.GetEnvironmentVariable(envName);
-                return BasicValue.FromString(envVal ?? "");
+                var envArg = args[0].Evaluate(env);
+                if (envArg.IsString)
+                {
+                    return BasicValue.FromString(env.GetEnviron(envArg.AsString));
+                }
+                return BasicValue.FromString(env.GetEnvironByIndex(envArg.AsInteger));
+
+            case "INPUT$":
+                if (args.Count == 1)
+                {
+                    int n = args[0].Evaluate(env).AsInteger;
+                    return BasicValue.FromString(env.ReadCharsFromConsole(n));
+                }
+                else if (args.Count == 2)
+                {
+                    int n = args[0].Evaluate(env).AsInteger;
+                    int fNum = args[1].Evaluate(env).AsInteger;
+                    return BasicValue.FromString(env.ReadCharsFromFile(fNum, n));
+                }
+                throw new BasicException(BasicErrorCode.IllegalFunctionCall);
+
+            case "LPOS":
+                EnsureArgCount(args, 1);
+                return BasicValue.FromInteger(0);
+
+            case "INP":
+                EnsureArgCount(args, 1);
+                int port = args[0].Evaluate(env).AsInteger;
+                return BasicValue.FromInteger((short)env.InPort(port));
+
+            case "VARPTR":
+                EnsureArgCount(args, 1);
+                string vName = args[0] switch
+                {
+                    VariableExpression ve => ve.Name,
+                    ArrayAccessExpression ae => ae.Name,
+                    _ => args[0].ToString() ?? ""
+                };
+                short vaddr = (short)((Math.Abs(vName.GetHashCode()) % 30000) + 1000);
+                return BasicValue.FromInteger(vaddr);
+
+            case "PLAY":
+                EnsureArgCount(args, 1);
+                return BasicValue.FromInteger((short)env.Audio.QueuedNotes);
 
             // Binary conversions for FIELD
             case "MKI$":

@@ -4,6 +4,7 @@ using GWBASIC.Core.Drivers;
 using GWBASIC.Core.Lexer;
 using GWBASIC.Core.Parser.Expressions;
 using GWBASIC.Core.Parser.Statements;
+using GWBASIC.Core.Runtime;
 
 namespace GWBASIC.Core.Parser;
 
@@ -31,6 +32,8 @@ public class BasicParser
         int? lineNumber = null;
         if (MatchLineNumber(out int lNum))
         {
+            if (lNum is < 0 or > 65529)
+                throw new BasicException(BasicErrorCode.UndefinedLineNumber, lNum, "Line number out of range (0-65529)");
             lineNumber = lNum;
         }
 
@@ -215,6 +218,12 @@ public class BasicParser
         if (Match(TokenType.Paint))
             return ParsePaint();
 
+        if (Match(TokenType.Window))
+            return ParseWindow();
+
+        if (Match(TokenType.View))
+            return ParseView();
+
         if (Match(TokenType.Draw))
             return new DrawStatement(ParseExpression());
 
@@ -265,6 +274,10 @@ public class BasicParser
 
         if (Match(TokenType.Put))
         {
+            if (Check(TokenType.OpenParen))
+            {
+                return ParseGraphicsPut();
+            }
             Match(TokenType.Hash); // optional #
             var fNum = ParseExpression();
             Expression? rec = Match(TokenType.Comma) ? ParseExpression() : null;
@@ -273,6 +286,10 @@ public class BasicParser
 
         if (Match(TokenType.Get))
         {
+            if (Check(TokenType.OpenParen))
+            {
+                return ParseGraphicsGet();
+            }
             Match(TokenType.Hash); // optional #
             var fNum = ParseExpression();
             Expression? rec = Match(TokenType.Comma) ? ParseExpression() : null;
@@ -307,6 +324,23 @@ public class BasicParser
 
         if (Match(TokenType.Delete))
             return ParseDelete();
+
+        if (Match(TokenType.Bload))
+        {
+            var fileName = ParseExpression();
+            Expression? offset = Match(TokenType.Comma) ? ParseExpression() : null;
+            return new BloadStatement(fileName, offset);
+        }
+
+        if (Match(TokenType.Bsave))
+        {
+            var fileName = ParseExpression();
+            Consume(TokenType.Comma, "Expected ',' in BSAVE");
+            var offset = ParseExpression();
+            Consume(TokenType.Comma, "Expected ',' in BSAVE");
+            var length = ParseExpression();
+            return new BsaveStatement(fileName, offset, length);
+        }
 
         if (Match(TokenType.Load))
         {
@@ -350,10 +384,51 @@ public class BasicParser
             if (Match(TokenType.Next)) return new ResumeStatement(ResumeTarget.Next);
             if (!IsStatementTerminator())
             {
-                int line = ParseExpression().Evaluate(null!).AsInteger;
-                return line == 0 ? new ResumeStatement(ResumeTarget.Current) : new ResumeStatement(ResumeTarget.Line, line);
+                var targetExpr = ParseExpression();
+                return new ResumeStatement(ResumeTarget.Line, targetExpr);
             }
             return new ResumeStatement(ResumeTarget.Current);
+        }
+
+        if (Match(TokenType.Shell))
+        {
+            Expression? cmd = !IsStatementTerminator() ? ParseExpression() : null;
+            return new ShellStatement(cmd);
+        }
+
+        if (Match(TokenType.Reset))
+            return new ResetStatement();
+
+        if (Match(TokenType.Common))
+            return ParseCommon();
+
+        if (Match(TokenType.Chain))
+            return ParseChain();
+
+        if (Match(TokenType.Environ))
+            return new EnvironStatement(ParseExpression());
+
+        if (Match(TokenType.Edit))
+            return new EditStatement(ParseExpression());
+
+        if (Match(TokenType.Out))
+        {
+            var port = ParseExpression();
+            Consume(TokenType.Comma, "Expected ',' in OUT");
+            var val = ParseExpression();
+            return new OutStatement(port, val);
+        }
+
+        if (Match(TokenType.DateStr))
+        {
+            Consume(TokenType.Equal, "Expected '=' in DATE$ statement");
+            return new DateStatement(ParseExpression());
+        }
+
+        if (Match(TokenType.TimeStr))
+        {
+            Consume(TokenType.Equal, "Expected '=' in TIME$ statement");
+            return new TimeStatement(ParseExpression());
         }
 
         if (Match(TokenType.Let))
@@ -873,6 +948,165 @@ public class BasicParser
         return new PaintStatement(x, y, paintCol, boundCol);
     }
 
+    private Statement ParseGraphicsGet()
+    {
+        Consume(TokenType.OpenParen, "Expected '(' in GET");
+        var x1 = ParseExpression();
+        Consume(TokenType.Comma, "Expected ',' in GET");
+        var y1 = ParseExpression();
+        Consume(TokenType.CloseParen, "Expected ')' in GET");
+        Consume(TokenType.Minus, "Expected '-' between coordinates in GET");
+        Consume(TokenType.OpenParen, "Expected '(' in GET");
+        var x2 = ParseExpression();
+        Consume(TokenType.Comma, "Expected ',' in GET");
+        var y2 = ParseExpression();
+        Consume(TokenType.CloseParen, "Expected ')' in GET");
+        Consume(TokenType.Comma, "Expected ',' before array name in GET");
+        string arrayName = ConsumeIdentifier("Expected array name in GET");
+        if (Match(TokenType.OpenParen))
+        {
+            ParseExpression();
+            Consume(TokenType.CloseParen, "Expected ')' after array index");
+        }
+        return new GraphicsGetStatement(x1, y1, x2, y2, arrayName);
+    }
+
+    private Statement ParseGraphicsPut()
+    {
+        Consume(TokenType.OpenParen, "Expected '(' in PUT");
+        var x = ParseExpression();
+        Consume(TokenType.Comma, "Expected ',' in PUT");
+        var y = ParseExpression();
+        Consume(TokenType.CloseParen, "Expected ')' in PUT");
+        Consume(TokenType.Comma, "Expected ',' before array name in PUT");
+        string arrayName = ConsumeIdentifier("Expected array name in PUT");
+        if (Match(TokenType.OpenParen))
+        {
+            ParseExpression();
+            Consume(TokenType.CloseParen, "Expected ')' after array index");
+        }
+        PutAction action = PutAction.Xor;
+        if (Match(TokenType.Comma))
+        {
+            if (Match(TokenType.Pset)) action = PutAction.Pset;
+            else if (Match(TokenType.Preset)) action = PutAction.Preset;
+            else if (Match(TokenType.And)) action = PutAction.And;
+            else if (Match(TokenType.Or)) action = PutAction.Or;
+            else if (Match(TokenType.Xor)) action = PutAction.Xor;
+            else if (Check(TokenType.Identifier))
+            {
+                string act = ConsumeIdentifier("Expected action");
+                action = act switch
+                {
+                    "PSET" => PutAction.Pset,
+                    "PRESET" => PutAction.Preset,
+                    "AND" => PutAction.And,
+                    "OR" => PutAction.Or,
+                    "XOR" => PutAction.Xor,
+                    _ => throw new BasicException(BasicErrorCode.SyntaxError)
+                };
+            }
+        }
+        return new GraphicsPutStatement(x, y, arrayName, action);
+    }
+
+    private Statement ParseWindow()
+    {
+        if (IsStatementTerminator())
+        {
+            return new WindowStatement(null, null, null, null, false);
+        }
+        bool screenCoords = Match(TokenType.Screen);
+        Consume(TokenType.OpenParen, "Expected '(' in WINDOW");
+        var x1 = ParseExpression();
+        Consume(TokenType.Comma, "Expected ',' in WINDOW");
+        var y1 = ParseExpression();
+        Consume(TokenType.CloseParen, "Expected ')' in WINDOW");
+        Consume(TokenType.Minus, "Expected '-' in WINDOW");
+        Consume(TokenType.OpenParen, "Expected '(' in WINDOW");
+        var x2 = ParseExpression();
+        Consume(TokenType.Comma, "Expected ',' in WINDOW");
+        var y2 = ParseExpression();
+        Consume(TokenType.CloseParen, "Expected ')' in WINDOW");
+        return new WindowStatement(x1, y1, x2, y2, screenCoords);
+    }
+
+    private Statement ParseView()
+    {
+        if (IsStatementTerminator())
+        {
+            return new ViewStatement(null, null, null, null, null, null, false);
+        }
+        bool screenCoords = Match(TokenType.Screen);
+        Consume(TokenType.OpenParen, "Expected '(' in VIEW");
+        var x1 = ParseExpression();
+        Consume(TokenType.Comma, "Expected ',' in VIEW");
+        var y1 = ParseExpression();
+        Consume(TokenType.CloseParen, "Expected ')' in VIEW");
+        Consume(TokenType.Minus, "Expected '-' in VIEW");
+        Consume(TokenType.OpenParen, "Expected '(' in VIEW");
+        var x2 = ParseExpression();
+        Consume(TokenType.Comma, "Expected ',' in VIEW");
+        var y2 = ParseExpression();
+        Consume(TokenType.CloseParen, "Expected ')' in VIEW");
+
+        Expression? fill = null;
+        Expression? border = null;
+        if (Match(TokenType.Comma))
+        {
+            if (!Check(TokenType.Comma) && !IsStatementTerminator())
+                fill = ParseExpression();
+            if (Match(TokenType.Comma))
+            {
+                if (!IsStatementTerminator())
+                    border = ParseExpression();
+            }
+        }
+        return new ViewStatement(x1, y1, x2, y2, fill, border, screenCoords);
+    }
+
+    private Statement ParseCommon()
+    {
+        var vars = new List<string> { ConsumeIdentifier("Expected variable in COMMON") };
+        while (Match(TokenType.Comma))
+        {
+            vars.Add(ConsumeIdentifier("Expected variable in COMMON"));
+        }
+        return new CommonStatement(vars);
+    }
+
+    private Statement ParseChain()
+    {
+        bool merge = Match(TokenType.Merge);
+        var fileName = ParseExpression();
+        Expression? line = null;
+        bool all = false;
+        if (Match(TokenType.Comma))
+        {
+            if (!Check(TokenType.Comma) && !IsStatementTerminator())
+            {
+                if (Check(TokenType.Identifier) && Peek().Text.Equals("ALL", StringComparison.OrdinalIgnoreCase))
+                {
+                    Advance();
+                    all = true;
+                }
+                else
+                {
+                    line = ParseExpression();
+                }
+            }
+            if (!all && Match(TokenType.Comma))
+            {
+                if (Check(TokenType.Identifier) && Peek().Text.Equals("ALL", StringComparison.OrdinalIgnoreCase))
+                {
+                    Advance();
+                    all = true;
+                }
+            }
+        }
+        return new ChainStatement(fileName, line, merge, all);
+    }
+
     private Statement ParseOpen()
     {
         // Syntax 1: OPEN mode, #num, filename [, reclen]
@@ -1264,6 +1498,10 @@ public class BasicParser
 
     private Expression ParseUnary()
     {
+        if (Match(TokenType.Hash))
+        {
+            return ParseUnary();
+        }
         if (Match(TokenType.Minus, TokenType.Plus))
         {
             var op = Previous().Type;
@@ -1361,7 +1599,7 @@ public class BasicParser
         TokenType.MkdStr or TokenType.MkiStr or TokenType.MksStr or TokenType.OctStr or TokenType.Peek or
         TokenType.Point or TokenType.Pos or TokenType.RightStr or TokenType.Rnd or TokenType.Sgn or
         TokenType.Sin or TokenType.SpaceStr or TokenType.Sqr or TokenType.StrStr or TokenType.StringStr or
-        TokenType.Tan or TokenType.Timer or TokenType.Val or TokenType.DateStr or TokenType.TimeStr or TokenType.EnvironStr or TokenType.MidStr;
+        TokenType.Tan or TokenType.Timer or TokenType.Val or TokenType.DateStr or TokenType.TimeStr or TokenType.EnvironStr or TokenType.MidStr or TokenType.Varptr or TokenType.Play;
 
     #endregion
 

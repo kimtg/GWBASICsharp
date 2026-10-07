@@ -319,16 +319,32 @@ public class VirtualAudioDriver : IAudioDriver
     public List<string> PlayedTunes { get; } = new();
     public int BeepCount { get; private set; }
     public int StopCount { get; private set; }
+    public int QueuedNotes { get; set; } = 0;
+    public bool LastPlayWasBackground { get; private set; }
 
     public void Beep() => BeepCount++;
 
     public void Sound(int frequencyHz, int durationClockTicks) =>
         PlayedSounds.Add((frequencyHz, durationClockTicks));
 
-    public void Play(string musicCommands) =>
-        PlayedTunes.Add(musicCommands);
+    public void Play(string musicCommands) => Play(musicCommands, null);
 
-    public void Stop() => StopCount++;
+    public void Play(string musicCommands, GWBASIC.Core.Runtime.BasicEnvironment? env)
+    {
+        PlayedTunes.Add(musicCommands);
+        var res = GWBASIC.Core.Runtime.MusicPlayer.ParseWithMode(musicCommands, env);
+        LastPlayWasBackground = res.IsBackground;
+        if (res.IsBackground)
+        {
+            QueuedNotes += res.Notes.Count;
+        }
+    }
+
+    public void Stop()
+    {
+        StopCount++;
+        QueuedNotes = 0;
+    }
 }
 
 public class VirtualInputDriver : IInputDriver
@@ -474,4 +490,10 @@ public class VirtualFileSystemDriver : IFileSystemDriver
 
     public void WriteAllText(string filename, string content) =>
         _files[filename] = content;
+
+    public byte[] ReadAllBytes(string filename) =>
+        _files.TryGetValue(filename, out var c) ? Encoding.Latin1.GetBytes(c) : throw new BasicException(BasicErrorCode.FileNotFound);
+
+    public void WriteAllBytes(string filename, byte[] bytes) =>
+        _files[filename] = Encoding.Latin1.GetString(bytes);
 }

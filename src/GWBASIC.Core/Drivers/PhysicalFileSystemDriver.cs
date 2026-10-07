@@ -171,6 +171,10 @@ public class PhysicalFileSystemDriver : IFileSystemDriver
 
     public void WriteAllText(string filename, string content) => File.WriteAllText(ResolvePath(filename), content, Encoding.Latin1);
 
+    public byte[] ReadAllBytes(string filename) => File.ReadAllBytes(ResolvePath(filename));
+
+    public void WriteAllBytes(string filename, byte[] bytes) => File.WriteAllBytes(ResolvePath(filename), bytes);
+
     private string ResolvePath(string filename)
     {
         if (Path.IsPathRooted(filename)) return filename;

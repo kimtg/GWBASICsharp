@@ -289,4 +289,59 @@ public class ProgramEditingTests
         Assert.Contains("Illegal function call", _screen.GetOutputLog());
         Assert.False(_env.IsAutoMode);
     }
+
+    [Fact]
+    public void TestResumeVariableEvaluation()
+    {
+        _interpreter.ExecuteInputLine("10 ON ERROR GOTO 100");
+        _interpreter.ExecuteInputLine("20 X = 1 / 0");
+        _interpreter.ExecuteInputLine("30 Y = 99");
+        _interpreter.ExecuteInputLine("40 END");
+        _interpreter.ExecuteInputLine("100 TARGET = 30: RESUME TARGET");
+        _interpreter.Run();
+
+        Assert.Equal(99, _env.GetVariable("Y").AsSingle);
+    }
+
+    [Fact]
+    public void TestRenumPreservesStringLiteralsAndComments()
+    {
+        _interpreter.ExecuteInputLine("10 GOTO 30");
+        _interpreter.ExecuteInputLine("20 PRINT \"GOTO 30 IN STRING\"");
+        _interpreter.ExecuteInputLine("30 REM GOTO 10 IN COMMENT");
+        _interpreter.ExecuteInputLine("RENUM 100, 10, 10");
+
+        var line100 = _env.Program.GetLine(100);
+        Assert.NotNull(line100);
+        Assert.Equal("GOTO 120", line100.Text.Trim());
+
+        var line110 = _env.Program.GetLine(110);
+        Assert.NotNull(line110);
+        Assert.Contains("\"GOTO 30 IN STRING\"", line110.Text);
+
+        var line120 = _env.Program.GetLine(120);
+        Assert.NotNull(line120);
+        Assert.Contains("REM GOTO 10 IN COMMENT", line120.Text);
+    }
+
+    [Fact]
+    public void TestSpacelessKeywords()
+    {
+        _interpreter.ExecuteInputLine("10SUM=0");
+        _interpreter.ExecuteInputLine("20FORI=1TO5");
+        _interpreter.ExecuteInputLine("30SUM=SUM+I");
+        _interpreter.ExecuteInputLine("40NEXTI");
+        _interpreter.Run();
+
+        Assert.Equal(15, _env.GetVariable("SUM").AsSingle);
+        Assert.Equal(6, _env.GetVariable("I").AsSingle);
+    }
+
+    [Fact]
+    public void TestLineNumberOutOfRange()
+    {
+        _screen.ClearOutputLog();
+        _interpreter.ExecuteInputLine("70000 PRINT \"TOO BIG\"");
+        Assert.Contains("Undefined line number", _screen.GetOutputLog());
+    }
 }

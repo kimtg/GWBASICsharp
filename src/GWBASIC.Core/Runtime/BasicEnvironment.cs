@@ -1,11 +1,15 @@
 using System.Globalization;
+using System.Text;
 using GWBASIC.Core.Common;
 using GWBASIC.Core.Drivers;
+using GWBASIC.Core.IO;
 using GWBASIC.Core.Parser;
 using GWBASIC.Core.Parser.Expressions;
 using GWBASIC.Core.Parser.Statements;
 
 namespace GWBASIC.Core.Runtime;
+
+public enum PutAction { Pset, Preset, And, Or, Xor }
 
 public class BasicEnvironment
 {
@@ -92,6 +96,38 @@ public class BasicEnvironment
     // Graphics state
     public int LastGraphicX { get; set; }
     public int LastGraphicY { get; set; }
+    public double LastGraphicWorldX { get; set; }
+    public double LastGraphicWorldY { get; set; }
+
+    public bool HasView { get; private set; }
+    public int ViewX1 { get; private set; }
+    public int ViewY1 { get; private set; }
+    public int ViewX2 { get; private set; }
+    public int ViewY2 { get; private set; }
+    public bool ViewScreenCoordinates { get; private set; }
+
+    public bool HasWindow { get; private set; }
+    public double WinX1 { get; private set; }
+    public double WinY1 { get; private set; }
+    public double WinX2 { get; private set; }
+    public double WinY2 { get; private set; }
+    public bool WinScreenCoordinates { get; private set; }
+
+    private readonly Dictionary<string, byte[]> _sprites = new(StringComparer.OrdinalIgnoreCase);
+
+    // OS, Shell, Date, Time, IO ports, Common variables
+    private string? _simulatedDate;
+    private string? _simulatedTime;
+    public string CurrentDate => _simulatedDate ?? DateTime.Now.ToString("MM-dd-yyyy", CultureInfo.InvariantCulture);
+    public string CurrentTime => _simulatedTime ?? DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+    public void SetDate(string d) => _simulatedDate = d;
+    public void SetTime(string t) => _simulatedTime = t;
+
+    private readonly HashSet<string> _commonVariables = new(StringComparer.OrdinalIgnoreCase);
+    public void DeclareCommonVariable(string name) => _commonVariables.Add(CanonicalizeVariableName(name));
+
+    private readonly Dictionary<string, string> _customEnviron = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<int, byte> _ioPorts = new();
 
     // Memory emulation for DEF SEG, PEEK, POKE
     public int DefSeg { get; set; }
@@ -272,6 +308,12 @@ public class BasicEnvironment
         InErrorHandler = false;
         LastGraphicX = 0;
         LastGraphicY = 0;
+        LastGraphicWorldX = 0;
+        LastGraphicWorldY = 0;
+        HasView = false;
+        HasWindow = false;
+        _sprites.Clear();
+        _commonVariables.Clear();
         ResetDefaults();
         RebuildDataItems();
     }
@@ -847,6 +889,40 @@ public class BasicEnvironment
         _memory[flat] = value;
     }
 
+    public void Bsave(string filename, int offset, int length)
+    {
+        if (offset < 0 || offset > 65535 || length <= 0 || offset + length > 65536)
+            throw new BasicException(BasicErrorCode.IllegalFunctionCall);
+
+        byte[] header = new byte[7];
+        header[0] = 0xFD; // BSAVE marker
+        BitConverter.GetBytes((ushort)DefSeg).CopyTo(header, 1);
+        BitConverter.GetBytes((ushort)offset).CopyTo(header, 3);
+        BitConverter.GetBytes((ushort)length).CopyTo(header, 5);
+
+        byte[] payload = new byte[7 + length];
+        Array.Copy(header, 0, payload, 0, 7);
+        Array.Copy(_memory, offset, payload, 7, length);
+
+        FileSystem.WriteAllBytes(filename, payload);
+    }
+
+    public void Bload(string filename, int? targetOffset = null)
+    {
+        byte[] data = FileSystem.ReadAllBytes(filename);
+        if (data.Length < 7 || data[0] != 0xFD)
+            throw new BasicException(BasicErrorCode.BadFileMode);
+
+        ushort headerOffset = BitConverter.ToUInt16(data, 3);
+        ushort length = BitConverter.ToUInt16(data, 5);
+
+        int offset = targetOffset ?? headerOffset;
+        if (offset < 0 || offset + length > 65536 || data.Length < 7 + length)
+            throw new BasicException(BasicErrorCode.IllegalFunctionCall);
+
+        Array.Copy(data, 7, _memory, offset, length);
+    }
+
     public void Randomize(int seed)
     {
         _random = new Random(seed);
@@ -866,6 +942,341 @@ public class BasicEnvironment
         }
         _lastRnd = _random.NextDouble();
         return BasicValue.FromSingle((float)_lastRnd);
+    }
+
+    #endregion
+
+    #region Graphics Viewport, Window & Sprite Operations
+
+    public void SetView(int? x1, int? y1, int? x2, int? y2, int? fillColor, int? borderColor, bool screenCoords)
+    {
+        if (!x1.HasValue || !y1.HasValue || !x2.HasValue || !y2.HasValue)
+        {
+            HasView = false;
+            return;
+        }
+
+        HasView = true;
+        ViewX1 = Math.Min(x1.Value, x2.Value);
+        ViewY1 = Math.Min(y1.Value, y2.Value);
+        ViewX2 = Math.Max(x1.Value, x2.Value);
+        ViewY2 = Math.Max(y1.Value, y2.Value);
+        ViewScreenCoordinates = screenCoords;
+
+        if (fillColor.HasValue)
+        {
+            Screen.Line(ViewX1, ViewY1, ViewX2, ViewY2, fillColor.Value, box: true, boxFill: true);
+        }
+        if (borderColor.HasValue)
+        {
+            Screen.Line(ViewX1, ViewY1, ViewX2, ViewY2, borderColor.Value, box: true, boxFill: false);
+        }
+    }
+
+    public void SetWindow(double? x1, double? y1, double? x2, double? y2, bool screenCoords)
+    {
+        if (!x1.HasValue || !y1.HasValue || !x2.HasValue || !y2.HasValue)
+        {
+            HasWindow = false;
+            return;
+        }
+
+        HasWindow = true;
+        WinX1 = x1.Value;
+        WinY1 = y1.Value;
+        WinX2 = x2.Value;
+        WinY2 = y2.Value;
+        WinScreenCoordinates = screenCoords;
+    }
+
+    public (int X, int Y) MapCoordinates(double x, double y)
+    {
+        if (!HasWindow)
+        {
+            if (HasView && !ViewScreenCoordinates)
+            {
+                return ((int)Math.Round(x + ViewX1), (int)Math.Round(y + ViewY1));
+            }
+            return ((int)Math.Round(x), (int)Math.Round(y));
+        }
+
+        int vx1 = HasView ? ViewX1 : 0;
+        int vy1 = HasView ? ViewY1 : 0;
+        int vx2 = HasView ? ViewX2 : (Screen.Mode == 1 ? 319 : 639);
+        int vy2 = HasView ? ViewY2 : 199;
+
+        double vw = vx2 - vx1;
+        double vh = vy2 - vy1;
+        double ww = WinX2 - WinX1;
+        double wh = WinY2 - WinY1;
+
+        if (Math.Abs(ww) < 1e-9 || Math.Abs(wh) < 1e-9)
+            return ((int)Math.Round(x), (int)Math.Round(y));
+
+        double sx = vx1 + ((x - WinX1) / ww) * vw;
+        double sy = WinScreenCoordinates
+            ? vy1 + ((y - WinY1) / wh) * vh
+            : vy2 - ((y - WinY1) / wh) * vh;
+
+        return ((int)Math.Round(sx), (int)Math.Round(sy));
+    }
+
+    public bool IsInViewport(int physicalX, int physicalY)
+    {
+        if (!HasView) return true;
+        return physicalX >= ViewX1 && physicalX <= ViewX2 && physicalY >= ViewY1 && physicalY <= ViewY2;
+    }
+
+    public void GraphicsGet(int x1, int y1, int x2, int y2, string arrayName)
+    {
+        var (px1, py1) = MapCoordinates(x1, y1);
+        var (px2, py2) = MapCoordinates(x2, y2);
+
+        int minX = Math.Min(px1, px2);
+        int maxX = Math.Max(px1, px2);
+        int minY = Math.Min(py1, py2);
+        int maxY = Math.Max(py1, py2);
+
+        int w = maxX - minX + 1;
+        int h = maxY - minY + 1;
+
+        int bitsPerPixel = Screen.Mode == 1 ? 2 : 1;
+        ushort widthInBits = (ushort)(w * bitsPerPixel);
+        ushort heightInLines = (ushort)h;
+
+        byte[] sprite = new byte[4 + w * h];
+        BitConverter.GetBytes(widthInBits).CopyTo(sprite, 0);
+        BitConverter.GetBytes(heightInLines).CopyTo(sprite, 2);
+
+        int idx = 4;
+        for (int y = minY; y <= maxY; y++)
+        {
+            for (int x = minX; x <= maxX; x++)
+            {
+                int col = Screen.Point(x, y);
+                sprite[idx++] = (byte)col;
+            }
+        }
+
+        string key = CanonicalizeVariableName(arrayName);
+        _sprites[key] = sprite;
+
+        SetArrayElement(arrayName, new[] { 0 }, BasicValue.FromInteger((short)widthInBits));
+        SetArrayElement(arrayName, new[] { 1 }, BasicValue.FromInteger((short)heightInLines));
+    }
+
+    public void GraphicsPut(int x, int y, string arrayName, PutAction action)
+    {
+        var (px, py) = MapCoordinates(x, y);
+        string key = CanonicalizeVariableName(arrayName);
+
+        if (!_sprites.TryGetValue(key, out var sprite) || sprite.Length < 4)
+        {
+            return;
+        }
+
+        ushort widthInBits = BitConverter.ToUInt16(sprite, 0);
+        ushort height = BitConverter.ToUInt16(sprite, 2);
+        int bitsPerPixel = Screen.Mode == 1 ? 2 : 1;
+        int width = widthInBits / bitsPerPixel;
+        if (width <= 0 || height <= 0) return;
+
+        int maxColor = Screen.Mode == 1 ? 3 : 1;
+        int idx = 4;
+
+        for (int row = 0; row < height; row++)
+        {
+            for (int col = 0; col < width; col++)
+            {
+                if (idx >= sprite.Length) break;
+                byte srcCol = sprite[idx++];
+                int targetX = px + col;
+                int targetY = py + row;
+
+                int maxScreenW = Screen.Mode == 1 ? 320 : 640;
+                if (targetX < 0 || targetX >= maxScreenW ||
+                    targetY < 0 || targetY >= 200 || !IsInViewport(targetX, targetY))
+                {
+                    continue;
+                }
+
+                int dstCol = Screen.Point(targetX, targetY);
+                int finalCol = action switch
+                {
+                    PutAction.Pset => srcCol,
+                    PutAction.Preset => (maxColor - srcCol) & maxColor,
+                    PutAction.And => dstCol & srcCol,
+                    PutAction.Or => dstCol | srcCol,
+                    PutAction.Xor => dstCol ^ srcCol,
+                    _ => dstCol ^ srcCol
+                };
+
+                Screen.PSet(targetX, targetY, finalCol);
+            }
+        }
+    }
+
+    #endregion
+
+    #region OS, Shell & Device Operations
+
+    public void SetEnviron(string entry)
+    {
+        int eq = entry.IndexOf('=');
+        if (eq > 0)
+        {
+            string k = entry[..eq].Trim();
+            string v = entry[(eq + 1)..].Trim();
+            _customEnviron[k] = v;
+            try { Environment.SetEnvironmentVariable(k, v); } catch { }
+        }
+    }
+
+    public string GetEnviron(string name)
+    {
+        if (_customEnviron.TryGetValue(name, out var v)) return v;
+        return Environment.GetEnvironmentVariable(name) ?? "";
+    }
+
+    public string GetEnvironByIndex(int index)
+    {
+        var entries = _customEnviron.Select(kv => $"{kv.Key}={kv.Value}").ToList();
+        if (index >= 1 && index <= entries.Count)
+        {
+            return entries[index - 1];
+        }
+        return "";
+    }
+
+    public void OutPort(int port, int val) => _ioPorts[port] = (byte)(val & 0xFF);
+    public int InPort(int port) => _ioPorts.TryGetValue(port, out byte b) ? b : 0xFF;
+
+    public void EditLine(int lineNum)
+    {
+        var line = Program.GetLine(lineNum);
+        if (line != null)
+        {
+            Screen.WriteLine(line.ToString());
+            Screen.Locate(Math.Max(1, Screen.CursorRow - 1), 1);
+        }
+    }
+
+    public void ExecuteShell(string? cmd)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                UseShellExecute = false
+            };
+            if (OperatingSystem.IsWindows())
+            {
+                psi.FileName = "cmd.exe";
+                if (!string.IsNullOrEmpty(cmd))
+                {
+                    psi.Arguments = $"/c {cmd}";
+                }
+            }
+            else
+            {
+                psi.FileName = "/bin/sh";
+                if (!string.IsNullOrEmpty(cmd))
+                {
+                    psi.Arguments = $"-c \"{cmd.Replace("\"", "\\\"")}\"";
+                }
+            }
+            using var proc = System.Diagnostics.Process.Start(psi);
+            proc?.WaitForExit();
+        }
+        catch
+        {
+            // Silently handle if shell cannot be launched
+        }
+    }
+
+    public void ExecuteChain(string filename, int? line, bool merge, bool all)
+    {
+        if (!all)
+        {
+            var keysToRemove = _variables.Keys.Where(k => !_commonVariables.Contains(k)).ToList();
+            foreach (var k in keysToRemove)
+            {
+                _variables.Remove(k);
+            }
+            var arrsToRemove = _arrays.Keys.Where(k => !_commonVariables.Contains(k)).ToList();
+            foreach (var k in arrsToRemove)
+            {
+                _arrays.Remove(k);
+            }
+        }
+
+        if (merge)
+        {
+            MergeProgram(filename);
+        }
+        else
+        {
+            Program.Clear();
+            string fn = EnsureBasExtension(filename);
+            byte[] bytes = FileSystem.ReadAllBytes(fn);
+            string content;
+            if (TokenizedBasicCodec.IsTokenized(bytes) || TokenizedBasicCodec.IsProtected(bytes))
+            {
+                content = TokenizedBasicCodec.Decode(bytes);
+            }
+            else
+            {
+                content = FileSystem.ReadAllText(fn);
+            }
+
+            using var reader = new StringReader(content);
+            string? l;
+            while ((l = reader.ReadLine()) != null)
+            {
+                if (string.IsNullOrWhiteSpace(l)) continue;
+                var (lineNum, statements) = BasicParser.ParseLine(l);
+                if (lineNum.HasValue)
+                {
+                    Program.AddOrUpdateLine(lineNum.Value, l, statements);
+                }
+            }
+            RebuildDataItems();
+        }
+    }
+
+    public string ReadCharsFromFile(int fileNum, int n)
+    {
+        if (!_openFiles.TryGetValue(fileNum, out var h))
+            throw new BasicException(BasicErrorCode.BadFileNumber);
+
+        var sb = new StringBuilder();
+        for (int i = 0; i < n; i++)
+        {
+            if (h.IsEof) break;
+            int ch = h.ReadChar();
+            if (ch == -1) break;
+            sb.Append((char)ch);
+        }
+        return sb.ToString();
+    }
+
+    public string ReadCharsFromConsole(int n)
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < n; i++)
+        {
+            string? k = Input.ReadInkey();
+            int waitedMs = 0;
+            while (k == null && waitedMs < 2000)
+            {
+                Thread.Sleep(5);
+                waitedMs += 5;
+                k = Input.ReadInkey();
+            }
+            if (k != null) sb.Append(k);
+            else break;
+        }
+        return sb.ToString();
     }
 
     #endregion
@@ -905,18 +1316,36 @@ public class BasicEnvironment
     public void SaveProgram(string filename, bool ascii)
     {
         string fn = EnsureBasExtension(filename);
-        var sb = new System.Text.StringBuilder();
-        foreach (var line in Program.GetLines())
+        if (ascii)
         {
-            sb.AppendLine(line.ToString());
+            var sb = new System.Text.StringBuilder();
+            foreach (var line in Program.GetLines())
+            {
+                sb.AppendLine(line.ToString());
+            }
+            FileSystem.WriteAllText(fn, sb.ToString());
         }
-        FileSystem.WriteAllText(fn, sb.ToString());
+        else
+        {
+            byte[] tokenized = TokenizedBasicCodec.Encode(Program.GetLines());
+            FileSystem.WriteAllBytes(fn, tokenized);
+        }
     }
 
     public void LoadProgram(string filename)
     {
         string fn = EnsureBasExtension(filename);
-        string content = FileSystem.ReadAllText(fn);
+        byte[] bytes = FileSystem.ReadAllBytes(fn);
+        string content;
+        if (TokenizedBasicCodec.IsTokenized(bytes) || TokenizedBasicCodec.IsProtected(bytes))
+        {
+            content = TokenizedBasicCodec.Decode(bytes);
+        }
+        else
+        {
+            content = FileSystem.ReadAllText(fn);
+        }
+
         Program.Clear();
         ClearVariables();
 
@@ -937,7 +1366,17 @@ public class BasicEnvironment
     public void MergeProgram(string filename)
     {
         string fn = EnsureBasExtension(filename);
-        string content = FileSystem.ReadAllText(fn);
+        byte[] bytes = FileSystem.ReadAllBytes(fn);
+        string content;
+        if (TokenizedBasicCodec.IsTokenized(bytes) || TokenizedBasicCodec.IsProtected(bytes))
+        {
+            content = TokenizedBasicCodec.Decode(bytes);
+        }
+        else
+        {
+            content = FileSystem.ReadAllText(fn);
+        }
+
         using var reader = new StringReader(content);
         string? line;
         while ((line = reader.ReadLine()) != null)

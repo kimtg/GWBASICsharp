@@ -2,6 +2,8 @@ namespace GWBASIC.Core.Runtime;
 
 public record MusicNote(int FrequencyHz, int DurationMs, int RestMs);
 
+public record MusicPlayResult(List<MusicNote> Notes, bool IsBackground);
+
 public static class MusicPlayer
 {
     private static readonly Dictionary<string, int> SemitonesFromC = new(StringComparer.OrdinalIgnoreCase)
@@ -15,23 +17,34 @@ public static class MusicPlayer
         { "B", 11 }
     };
 
-    public static List<MusicNote> Parse(string commands)
+    public static List<MusicNote> Parse(string commands, BasicEnvironment? env = null) =>
+        ParseWithMode(commands, env).Notes;
+
+    public static MusicPlayResult ParseWithMode(
+        string commands,
+        BasicEnvironment? env = null,
+        int initialOctave = 4,
+        int initialDefaultLength = 4,
+        int initialTempo = 120,
+        double initialNoteFraction = 7.0 / 8.0,
+        bool initialBackground = false)
     {
         var notes = new List<MusicNote>();
-        int octave = 4;
-        int defaultLength = 4; // quarter note
-        int tempo = 120; // 120 quarter notes per minute
-        double noteFraction = 7.0 / 8.0; // MN default
+        int octave = initialOctave;
+        int defaultLength = initialDefaultLength; // quarter note
+        int tempo = initialTempo; // 120 quarter notes per minute
+        double noteFraction = initialNoteFraction; // MN default
+        bool isBackground = initialBackground;
 
         int pos = 0;
         while (pos < commands.Length)
         {
             char c = char.ToUpperInvariant(commands[pos++]);
-            if (char.IsWhiteSpace(c)) continue;
+            if (char.IsWhiteSpace(c) || c == ';') continue;
 
             if (c == 'O')
             {
-                int oct = ReadInt(commands, ref pos);
+                int oct = ReadValue(commands, ref pos, env);
                 octave = Math.Clamp(oct, 0, 6);
             }
             else if (c == '>')
@@ -44,12 +57,12 @@ public static class MusicPlayer
             }
             else if (c == 'L')
             {
-                int len = ReadInt(commands, ref pos);
+                int len = ReadValue(commands, ref pos, env);
                 if (len is >= 1 and <= 64) defaultLength = len;
             }
             else if (c == 'T')
             {
-                int t = ReadInt(commands, ref pos);
+                int t = ReadValue(commands, ref pos, env);
                 if (t is >= 32 and <= 255) tempo = t;
             }
             else if (c == 'M')
@@ -60,18 +73,20 @@ public static class MusicPlayer
                     if (style == 'N') noteFraction = 7.0 / 8.0;
                     else if (style == 'L') noteFraction = 1.0;
                     else if (style == 'S') noteFraction = 3.0 / 4.0;
+                    else if (style == 'B') isBackground = true;
+                    else if (style == 'F') isBackground = false;
                 }
             }
             else if (c == 'P')
             {
-                int len = ReadInt(commands, ref pos);
+                int len = ReadValue(commands, ref pos, env);
                 if (len < 1 || len > 64) len = defaultLength;
                 int dur = CalculateDuration(len, tempo, commands, ref pos);
                 notes.Add(new MusicNote(0, 0, dur));
             }
             else if (c == 'N')
             {
-                int noteNum = ReadInt(commands, ref pos);
+                int noteNum = ReadValue(commands, ref pos, env);
                 if (noteNum == 0)
                 {
                     int dur = CalculateDuration(defaultLength, tempo, commands, ref pos);
@@ -87,6 +102,21 @@ public static class MusicPlayer
                     notes.Add(new MusicNote(freq, soundDur, restDur));
                 }
             }
+            else if (c == 'X')
+            {
+                int startVar = pos;
+                while (pos < commands.Length && commands[pos] != ';') pos++;
+                string varName = commands[startVar..pos].Trim();
+                if (pos < commands.Length && commands[pos] == ';') pos++;
+
+                if (env != null && !string.IsNullOrEmpty(varName))
+                {
+                    string subTune = env.GetVariable(varName).AsString;
+                    var subResult = ParseWithMode(subTune, env, octave, defaultLength, tempo, noteFraction, isBackground);
+                    notes.AddRange(subResult.Notes);
+                    isBackground = subResult.IsBackground;
+                }
+            }
             else if (c is >= 'A' and <= 'G')
             {
                 string noteName = c.ToString();
@@ -95,7 +125,7 @@ public static class MusicPlayer
                     noteName += commands[pos++];
                 }
 
-                int noteLen = ReadInt(commands, ref pos);
+                int noteLen = ReadValue(commands, ref pos, env);
                 if (noteLen < 1 || noteLen > 64) noteLen = defaultLength;
 
                 int totalDur = CalculateDuration(noteLen, tempo, commands, ref pos);
@@ -112,7 +142,25 @@ public static class MusicPlayer
             }
         }
 
-        return notes;
+        return new MusicPlayResult(notes, isBackground);
+    }
+
+    private static int ReadValue(string str, ref int pos, BasicEnvironment? env)
+    {
+        while (pos < str.Length && char.IsWhiteSpace(str[pos])) pos++;
+        if (pos < str.Length && str[pos] == '=')
+        {
+            pos++;
+            int vStart = pos;
+            while (pos < str.Length && str[pos] != ';' && !char.IsWhiteSpace(str[pos])) pos++;
+            string varName = str[vStart..pos].Trim();
+            if (pos < str.Length && str[pos] == ';') pos++;
+            return env?.GetVariable(varName).AsInteger ?? 0;
+        }
+
+        int val = ReadInt(str, ref pos);
+        if (pos < str.Length && str[pos] == ';') pos++;
+        return val;
     }
 
     private static int ReadInt(string str, ref int pos)

@@ -196,5 +196,6 @@ public enum TokenType
     StrStr,
     StringStr,
     Tan,
-    Val
+    Val,
+    Varptr
 }
